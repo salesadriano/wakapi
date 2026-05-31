@@ -36,14 +36,29 @@ func GetWebAuthnSession(r *http.Request) (*webauthn.SessionData, error) {
 		return nil, fmt.Errorf("webauthn session data has invalid type")
 	}
 
-	if config.Get().Security.CookieMaxAgeSec > 0 {
-		expiresAtRaw, ok := sess.Values[config.SessionValueWebAuthnExpiresAt]
-		if !ok {
-			return nil, fmt.Errorf("webauthn session expiry missing")
-		}
+	expiresAtRaw, hasExpiresAt := sess.Values[config.SessionValueWebAuthnExpiresAt]
+	if config.Get().Security.CookieMaxAgeSec > 0 && !hasExpiresAt {
+		return nil, fmt.Errorf("webauthn session expiry missing")
+	}
 
-		expiresAt, ok := expiresAtRaw.(int64)
-		if !ok {
+	if hasExpiresAt {
+		var expiresAt int64
+		switch value := expiresAtRaw.(type) {
+		case int64:
+			expiresAt = value
+		case int:
+			expiresAt = int64(value)
+		case int32:
+			expiresAt = int64(value)
+		case uint:
+			expiresAt = int64(value)
+		case uint32:
+			expiresAt = int64(value)
+		case uint64:
+			expiresAt = int64(value)
+		case float64:
+			expiresAt = int64(value)
+		default:
 			return nil, fmt.Errorf("webauthn session expiry has invalid type")
 		}
 
