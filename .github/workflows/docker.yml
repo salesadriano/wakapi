@@ -48,8 +48,9 @@ jobs:
         with:
           images: ${{ steps.image-target.outputs.image }}
           tags: |
-            latest
-            alpine
+            type=raw,value=latest
+            type=raw,value=alpine
+            type=raw,value=${{ github.event.release.tag_name }}
             type=semver,pattern={{major}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{version}}
