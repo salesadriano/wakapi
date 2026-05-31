@@ -89,7 +89,7 @@ If you want to run Wakapi on **Kubernetes**, there is [wakapi-helm-chart](https:
 
 Alternatively, you can use Docker Compose for an even more straightforward deployment. See [compose.yml](https://github.com/muety/wakapi/blob/master/compose.yml) for configuration details.
 
-Wakapi supports [Docker Secrets](https://docs.docker.com/compose/how-tos/use-secrets/) for the following variables: `WAKAPI_PASSWORD_SALT`, `WAKAPI_DB_PASSWORD`, `WAKAPI_MAIL_SMTP_PASS`. You can set these either by having them mounted as a secret file, or directly pass them as environment variables.
+The provided Compose setup starts with local development defaults out of the box. Override `WAKAPI_PASSWORD_SALT`, `WAKAPI_DB_PASSWORD`, and `WAKAPI_MAIL_SMTP_PASS` through environment variables or a local `.env` file before using it outside development.
 
 ##### Example
 
@@ -102,6 +102,22 @@ docker compose up -d
 ```
 
 If you prefer to persist data in a local directory while using SQLite as the database, make sure to set the correct `user` option in the Docker Compose configuration to avoid permission issues.
+
+#### Docker Swarm / Portainer
+
+For Docker Swarm stacks managed through Portainer, use [stack.yml](https://github.com/muety/wakapi/blob/master/stack.yml). It references the prebuilt image from GitHub Container Registry, so the cluster can pull releases directly without building locally.
+
+##### Example
+
+```bash
+export WAKAPI_PASSWORD_SALT=changeme
+export WAKAPI_DB_PASSWORD=changeme
+export WAKAPI_MAIL_SMTP_PASS=changeme
+
+docker stack deploy -c stack.yml wakapi
+```
+
+If your GHCR package is private, configure registry credentials in Portainer or deploy with `--with-registry-auth`. For public packages, a normal pull is sufficient.
 
 ### 🧑‍💻 Option 4: Compile and run from source
 
