@@ -1,10 +1,11 @@
 services:
   wakapi:
-    image: ghcr.io/muety/wakapi:latest
+    image: ${WAKAPI_IMAGE_REPO:-ghcr.io/salesadriano/wakapi}:${WAKAPI_IMAGE_TAG:-latest}
     init: true
+    stop_grace_period: 30s
     ports:
       - target: 3000
-        published: 3000
+        published: ${WAKAPI_PORT:-3000}
         protocol: tcp
         mode: ingress
     environment:
@@ -23,11 +24,22 @@ services:
       - wakapi
     deploy:
       replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+        failure_action: rollback
+        monitor: 30s
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+        order: stop-first
       restart_policy:
         condition: on-failure
 
   db:
     image: postgres:17
+    stop_grace_period: 60s
     environment:
       POSTGRES_USER: "wakapi"
       POSTGRES_PASSWORD: "${WAKAPI_DB_PASSWORD:-changeme}"
@@ -38,6 +50,9 @@ services:
       - wakapi
     deploy:
       replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
       restart_policy:
         condition: on-failure
 
