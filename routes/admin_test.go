@@ -1,0 +1,163 @@
+package routes
+
+import (
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/go-chi/chi/v5"
+	conf "github.com/muety/wakapi/config"
+	"github.com/muety/wakapi/middlewares"
+	"github.com/muety/wakapi/mocks"
+	"github.com/muety/wakapi/models"
+	routeutils "github.com/muety/wakapi/routes/utils"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+)
+
+func newAdminTestHandler(userMock *mocks.UserServiceMock) *AdminHandler {
+	return &AdminHandler{
+		config:           conf.Get(),
+		userService:      userMock,
+		heartbeatService: new(mocks.HeartbeatServiceMock),
+	}
+}
+
+func injectPrincipal(principal *models.User) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if principal != nil {
+				routeutils.SetPrincipal(r, principal)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// adminActionRouter wires the SharedData + principal injection + admin gate around
+// the POST action routes (no GET, to avoid template rendering in unit tests).
+func adminActionRouter(principal *models.User, h *AdminHandler) chi.Router {
+	r := chi.NewRouter()
+	r.Use(middlewares.NewSharedDataMiddleware())
+	r.Use(injectPrincipal(principal))
+	r.Use(h.requireAdmin)
+	r.Post("/admin/users/{id}/toggle-admin", h.PostToggleAdmin)
+	r.Post("/admin/users/{id}/reset-apikey", h.PostResetApiKey)
+	r.Post("/admin/users/{id}/delete", h.PostDeleteUser)
+	return r
+}
+
+// The headline requirement: the dashboard must be reachable by administrators only.
+func TestAdminHandler_RequireAdmin(t *testing.T) {
+	conf.Set(conf.Empty())
+	h := newAdminTestHandler(new(mocks.UserServiceMock))
+
+	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	cases := []struct {
+		name      string
+		principal *models.User
+		want      int
+	}{
+		{"admin is allowed", &models.User{ID: "root", IsAdmin: true}, http.StatusOK},
+		{"regular developer is forbidden", &models.User{ID: "joe", IsAdmin: false}, http.StatusForbidden},
+		{"anonymous is forbidden", nil, http.StatusForbidden},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := chi.NewRouter()
+			r.Use(middlewares.NewSharedDataMiddleware())
+			r.Use(injectPrincipal(tc.principal))
+			r.Use(h.requireAdmin)
+			r.Get("/admin", ok)
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+			r.ServeHTTP(rec, req)
+
+			assert.Equal(t, tc.want, rec.Code)
+		})
+	}
+}
+
+func TestAdminHandler_PostDeleteUser_CannotDeleteSelf(t *testing.T) {
+	conf.Set(conf.Empty())
+	admin := &models.User{ID: "root", IsAdmin: true}
+
+	userMock := new(mocks.UserServiceMock)
+	userMock.On("GetUserById", "root").Return(admin, nil)
+
+	h := newAdminTestHandler(userMock)
+	router := adminActionRouter(admin, h)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/admin/users/root/delete", nil)
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusFound, rec.Code)
+	userMock.AssertNotCalled(t, "Delete", mock.Anything)
+}
+
+func TestAdminHandler_PostDeleteUser_DeletesOtherUser(t *testing.T) {
+	conf.Set(conf.Empty())
+	admin := &models.User{ID: "root", IsAdmin: true}
+	target := &models.User{ID: "joe"}
+
+	userMock := new(mocks.UserServiceMock)
+	userMock.On("GetUserById", "joe").Return(target, nil)
+	userMock.On("Delete", target).Return(nil)
+
+	h := newAdminTestHandler(userMock)
+	router := adminActionRouter(admin, h)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/admin/users/joe/delete", nil)
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusFound, rec.Code)
+	userMock.AssertCalled(t, "Delete", target)
+}
+
+func TestAdminHandler_PostDeleteUser_NotFound(t *testing.T) {
+	conf.Set(conf.Empty())
+	admin := &models.User{ID: "root", IsAdmin: true}
+
+	userMock := new(mocks.UserServiceMock)
+	userMock.On("GetUserById", "ghost").Return(nil, errors.New("not found"))
+
+	h := newAdminTestHandler(userMock)
+	router := adminActionRouter(admin, h)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/admin/users/ghost/delete", nil)
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusFound, rec.Code)
+	userMock.AssertNotCalled(t, "Delete", mock.Anything)
+}
+
+func TestAdminHandler_PostToggleAdmin_TogglesOtherUser(t *testing.T) {
+	conf.Set(conf.Empty())
+	admin := &models.User{ID: "root", IsAdmin: true}
+	target := &models.User{ID: "joe", IsAdmin: false}
+
+	userMock := new(mocks.UserServiceMock)
+	userMock.On("GetUserById", "joe").Return(target, nil)
+	userMock.On("Update", mock.MatchedBy(func(u *models.User) bool {
+		return u.ID == "joe" && u.IsAdmin // promoted to admin
+	})).Return(target, nil)
+
+	h := newAdminTestHandler(userMock)
+	router := adminActionRouter(admin, h)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/admin/users/joe/toggle-admin", nil)
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusFound, rec.Code)
+	userMock.AssertCalled(t, "Update", mock.Anything)
+}
