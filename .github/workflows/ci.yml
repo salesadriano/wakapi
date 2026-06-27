@@ -12,6 +12,10 @@ jobs:
     steps:
     - name: Check out code into the Go module directory
       uses: actions/checkout@v5
+      with:
+        # full history so golangci-lint can compute the merge-base with master
+        # for incremental (new-code-only) linting
+        fetch-depth: 0
 
     - name: Set up Go 1.x
       uses: actions/setup-go@v6
@@ -22,12 +26,11 @@ jobs:
     - name: go vet
       run: go vet `go list ./... | grep -v 'github.com/muety/wakapi/scripts'`
 
-    # Report-only for now: golangci-lint surfaces pre-existing findings in the
-    # legacy codebase. Keep it non-blocking until those are cleaned up, then drop
-    # continue-on-error to make it a hard gate. `go vet` above stays blocking.
+    # Blocking gate, but incremental: only issues introduced relative to the
+    # merge-base with master fail the build (see new-from-merge-base in
+    # .golangci.yml). The legacy backlog is grandfathered.
     - name: golangci-lint
       uses: golangci/golangci-lint-action@v8
-      continue-on-error: true
       with:
         version: latest
 
@@ -85,9 +88,13 @@ jobs:
       run: |
         set -e
         measure() {
-          local pkgs
+          local pkgs covpkg
           pkgs=$(go list ./... | grep -v 'github.com/muety/wakapi/scripts')
-          CGO_ENABLED=0 go test -coverprofile="$1" $pkgs >/dev/null 2>&1 || true
+          # -coverpkg makes the denominator (total statements) stable across runs,
+          # so a package gaining its first tests can't lower the aggregate just by
+          # becoming visible in the profile.
+          covpkg=$(echo "$pkgs" | paste -sd,)
+          CGO_ENABLED=0 go test -coverpkg="$covpkg" -coverprofile="$1" $pkgs >/dev/null 2>&1 || true
           go tool cover -func="$1" 2>/dev/null | awk '/^total:/ {gsub("%","",$3); print $3+0}' || echo 0
         }
         git checkout --quiet ${{ github.event.pull_request.base.sha }}

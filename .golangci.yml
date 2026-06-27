@@ -14,3 +14,10 @@ linters:
     paths:
       - mocks
       - scripts
+
+issues:
+  # Incremental adoption on a legacy codebase: only gate issues introduced since
+  # the merge-base with master. The pre-existing backlog (~121+ findings, capped
+  # at 50/linter in reports) is grandfathered and can be burned down in dedicated,
+  # compiler-validated PRs. Requires fetch-depth: 0 on the lint job checkout.
+  new-from-merge-base: origin/master
