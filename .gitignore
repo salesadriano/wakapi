@@ -7,6 +7,7 @@ dbmigrate
 build
 *.exe
 *.db
+*.sqlite
 *.zip
 config*.yml
 !config.default.yml

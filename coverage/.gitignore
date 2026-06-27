@@ -1,0 +1,4 @@
+# Ignore generated coverage artifacts but keep the directory tracked
+# (the local test command writes coverage.out here — see CLAUDE.md)
+*
+!.gitignore

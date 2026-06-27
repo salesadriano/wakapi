@@ -1,0 +1,16 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  # Conservative starting set: the golangci-lint v2 "standard" group
+  # (errcheck, govet, ineffassign, staticcheck, unused). The team can
+  # tighten this over time without breaking CI on the first run.
+  default: standard
+  exclusions:
+    generated: lax
+    # Hand-maintained mocks and the scripts helpers are intentionally noisy.
+    paths:
+      - mocks
+      - scripts
