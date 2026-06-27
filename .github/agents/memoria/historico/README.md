@@ -1,14 +1,14 @@
-# Historico da Memoria Compartilhada
+# Historico das Memorias dos Agents
 
-Este diretorio deve manter apenas registros estruturais e reutilizaveis para o futuro dos agents.
+Este diretorio deve manter apenas registros estruturais e reutilizaveis para o futuro dos agents, cobrindo memoria geral e memoria de projeto.
 
 Nao manter aqui:
 
 - iteracoes editoriais de curta duracao;
 - etapas intermediarias de consolidacao de templates;
-- ajustes operacionais ja absorvidos pela memoria principal ou pelos artefatos permanentes.
+- ajustes operacionais ja absorvidos pela memoria geral, memoria de projeto ou pelos artefatos permanentes.
 
-Cada atualizacao estrutural relevante da memoria deve gerar um arquivo:
+Cada atualizacao estrutural relevante das memorias deve gerar um arquivo:
 
 - Padrao: `YYYY-MM-DD-HHMM-<slug>.md`
 - Conteudo minimo:

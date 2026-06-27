@@ -22,6 +22,283 @@
 | Estado do baseline | Estabilizado e portavel |
 | Responsavel de consolidacao | Tech Lead |
 
+---
+
+## Projeto Ativo — SCIE / eleitor
+
+Este pacote esta operando no projeto **SCIE — Sistema de Cadastro e Inteligencia Eleitoral**.
+
+| Campo | Valor |
+|---|---|
+| Repositorio | `/home/sales/eleitor` |
+| Branch principal | `develop` — toda PR e aberta para `develop` (base de integracao) |
+| Memoria compartilhada do projeto | `../../memoria/MEMORIA-COMPARTILHADA.md` (relativo a este arquivo) |
+| Historico do projeto | `../../memoria/historico/` |
+| Docs formais | `../../docs/` |
+
+### Stack detectada no projeto
+
+| Camada | Tecnologia |
+|---|---|
+| Backend | NestJS 11, TypeScript 5.9, PostgreSQL 16 + PostGIS, Node 20 |
+| Frontend | React 19, Vite 8, TypeScript 5.9, Tailwind CSS v3, TanStack Router 1.170, TanStack Query 5.101, TanStack Form 1.33 |
+| Auth | JWT local HS256, stateless — `POST /auth/login` |
+| Testes E2E | Cypress 14 via Docker |
+| Testes unitarios | Vitest 4 |
+| i18n | i18next + react-i18next (locales: pt-BR, en) |
+| Notificacoes | Sonner 2 (toast) |
+
+### Convencoes criticas do projeto
+
+| Assunto | Convencao |
+|---|---|
+| Testes | Sempre via Docker — nunca instalar Cypress localmente |
+| Hot reload backend | `docker restart scie-backend` apos alteracoes (sem watch) |
+| Envelope API | `{ success, data, meta, error }` — `ApiClient.request()` faz unwrap automatico |
+| Perfis | `admin_nacional` \| `coordenador_regional` (minusculo com underscore) |
+| Commits | Conventional Commits + Gitflow |
+| Swagger | Todo novo endpoint precisa de decoradores completos + tag em `main.ts` |
+
+### Situacao atual (2026-06-08)
+
+- Branch: `develop` | Working tree: limpo (sem pendencias de commit)
+- **I18N-001** — commitado em `97d7d31`; `api-error-translator.ts` rastreado; `AppShellProvider` sem strings hardcoded
+- **E2E-002** (coordenadores, eleitores, pleitos) — implementada; aguarda validacao QA no container e aprovacao formal do solicitante
+- **Novas funcionalidades commitadas desde 2026-06-07:**
+  - `UI-001`: `DataTable` + `ApiDataTable` (filtragem, ordenacao, paginacao server-side)
+  - `ELEICAO-002`: locais de votacao — importacao CSV + `section_number` + relatorio de skipped
+  - `ELEICAO-003`: resultados de urna (`BallotResultsPage`) + candidatos (`CandidatesPage`) com importacao em lote
+  - Sonner integrado para notificacoes toast
+  - Multiplos fixes no `docker-stack.yml` e CI
+- Memoria compartilhada do projeto: `../../memoria/MEMORIA-COMPARTILHADA.md` (atualizada em 2026-06-08)
+
+### QA — Revisao e otimizacao de TDD (2026-06-13)
+
+- **Parecer QA:** REPROVADO para fechamento formal sob `protocolo-tdd`. Bloqueios: (B1) ausencia total de `data-cy`/`data-test` no frontend + E2E dependente de `cy.contains` com i18n; (B2) integracao sem Testcontainers.
+- **O2+O3 implementados (backend):** split unit/integracao no Vitest + harness Testcontainers (PostGIS) hermético.
+  - `vitest.config.ts` (unit, exclui `*.int.spec.ts`, roda SEM banco) e `vitest.integration.config.ts` (singleFork + `globalSetup`).
+  - `test/integration/global-setup.ts`: sobe `postgis/postgis:18-3.6`, aplica `scripts/01-init-postgis.sql` + `npm run migrate` + `npm run seed` (reuso do caminho canonico, sem duplicar SQL).
+  - Specs de integracao renomeadas para `*.int.spec.ts` (2: `postgres-internal-user-access`, `postgres-density-distance-analysis`).
+  - Scripts: `test`/`test:unit` (sem DB), `test:integration`, `test:all`.
+  - Validacao: `postgres-internal-user-access.repository.int.spec.ts` passa 6/6 via Testcontainers.
+- **Defeitos pre-existentes expostos (handoff -> Senior Developer):**
+  - DEF-TDD-01 (corrigido): specs de auth mockavam `bcrypt`, mas o codigo usa `bcryptjs` -> mock nao aplicava. Ajustado em `local-auth.use-case.spec.ts` e `local-auth.controller.spec.ts`.
+  - DEF-TDD-02: `postgres-density-distance-analysis.repository.int.spec.ts` usa ids texto (`test-density-*`) e `region_id` texto, incompativeis com `voters.id UUID` -> `operator does not exist: uuid ~~ unknown`. Suite nunca esteve verde; exige refatorar para uuids reais.
+  - DEF-TDD-03: `local-auth.use-case.spec.ts` (4 testes) quebra com `Cannot read properties of undefined (reading 'isEnabled')` — mock desatualizado apos introducao de TOTP (migr. 015).
+  - DEF-TDD-04: `territorial-mesh.controller.spec.ts` (2 testes) retorna 401 — guard de auth sem setup de token/usuario.
+- **Backlog QA pendente (nao executado):** O1 (instrumentar `data-cy` + migrar Cypress), O4 (politica de intercept), O5 (unit/componente frontend), O6 (thresholds de cobertura), O7 (exaustao real com saturacao/p95).
+
+### QA — Backlog O1/O4/O5/O6/O7 executado (2026-06-13)
+
+- **O5 (frontend unit/componente):** criado setup Vitest + Testing Library + jsdom (`frontend/vitest.config.ts`, `vitest.setup.ts`). Testes: `api-error-translator.spec.ts`, `menu-permissions.spec.ts`, `DataTable.spec.tsx`. **20/20 verdes.** `getByTestId` configurado para casar com `data-cy`.
+- **O6 (thresholds):** gate de cobertura incremental (pisos globais baixos + por-arquivo altos). Frontend: gate **passa** (EXIT 0). Backend: thresholds em `vitest.config.ts` (verificacao verde depende de corrigir DEF-TDD-03/04).
+- **O7 (exaustao real):** `density-distance-analysis.exhaustion.int.spec.ts` (Testcontainers). Mede throughput de insercao (~60k linhas/s) e curva de latencia da query PostGIS por volume controlado. **2/2 verdes e deterministico** (sem flaky).
+- **O1 (data-cy):** `DataTable` instrumentado (row/prev/next/page) + fluxo login (`LoginPage` + `cy.login` + `login.cy.ts` migrados para `[data-cy=...]`). Demais fluxos: rollout documentado em `frontend/cypress/README.md`.
+- **O4 (politica de intercept):** formalizada em `frontend/cypress/README.md` (happy-path no backend real; intercept so para 3rd-party e simulacao explicita de erro). `login.cy.ts` ja roda contra backend real.
+- **Defeitos de PRODUCAO encontrados+corrigidos (DEF-TDD-05):** `postgres-density-distance-analysis.repository.ts` tinha `ORDER BY <alias>::int` (alias com cast nao visivel em ORDER BY -> `column ... does not exist`) em DUAS queries. O endpoint de densidade quebraria (500) sempre que houvesse clusters. Corrigido para `ORDER BY COUNT(*)`/`COUNT(*) FILTER(...)`.
+- **Achado de capacidade (para Business Analyst):** query de densidade e superlinear (N=100->28ms, N=200->247ms ~9x) e atinge ~6s @ 2000 eleitores, com instabilidade acima disso. Recomenda-se otimizacao (indice/algoritmo) antes de escalar.
+
+### QA — DEF-TDD-02/03/04 corrigidos (2026-06-13)
+
+Suites 100% verdes: **backend unit 357/357, backend integration 18/18, frontend 20/20**.
+
+- **DEF-TDD-02 (corrigido):** `postgres-density-distance-analysis.repository.int.spec.ts` reescrito para o schema REAL (`cpf_hash`/`full_name`/`status`, sem `name`/`cpf`/`internal_user_id`; id UUID default; limpeza por `full_name LIKE`).
+- **DEF-TDD-03 (corrigido):** `local-auth.use-case.spec.ts` — faltava o 5o arg do construtor (`totpRepository`); adicionado mock `makeTotpRepository()` com `isEnabled=false`.
+- **DEF-TDD-04 (corrigido):** `territorial-mesh.controller.spec.ts` — rota protegida por `JwtAuthGuard`; passou a emitir token admin via `JwtService` e enviar `Authorization: Bearer`.
+- **DEF-TDD-06 (PRODUCAO, corrigido):** mesma repository de densidade comparava `rc.internal_user_id` (uuid) com `text[]` no escopo nao-global -> `operator does not exist: uuid = text` (500 para coordenador_regional). Corrigido com `rc.internal_user_id::text`.
+- **Infra de teste:** `vitest.integration.config.ts` agora usa `fileParallelism: false` — specs de integracao compartilham o mesmo banco efemero e nao podem intercalar (contaminacao cruzada de massa).
+- Pendencia residual: elevar thresholds de cobertura (O6) conforme a suite cresce; rollout `data-cy` (O1) aos fluxos voters/coordinators/elections/account.
+
+### QA — B1 resolvido na raiz (data-cy rollout) (2026-06-13)
+
+- **O1 concluido** nos fluxos auth, account/menu, voters, coordinators, elections + DataTable + Modal. **57 `data-cy`** em componentes, **83 seletores `data-cy`** nos specs.
+- **B1 (seletores frageis a i18n) eliminado para AÇÕES:** nenhum `cy.contains('<texto>')` dispara click/type — todos usam `data-cy`/`#id`. Unico `.contains().click()` restante mira dado dinamico (chip de bairro), nao rotulo.
+- **Modal compartilhado instrumentado:** prop `dataCy` → raiz `role=dialog` + botoes `${dataCy}-confirm`/`-cancel`. Diálogos de remoção: `voter/coordinator/election-delete-dialog`.
+- Convenção: `<entidade>-<elemento>` (ex.: `voter-cpf`, `election-turn-1`, `account-menu-logout`); documentada em `frontend/cypress/README.md` (com política O4 de intercept).
+- Verificacao: `tsc -p tsconfig.app.json` EXIT 0; suite unit/componente frontend 20/20. Execução E2E roda no Docker stack (`docker compose run --rm cypress`).
+- **Tail CONCLUÍDO (2026-06-13):** dashboard (`dashboard-title`, `dashboard-kpi-sessionProfile` com `data-profile` — perfil verificado por CÓDIGO, não por rótulo i18n), `login-title`, `SurfaceCard dataCy` (`election-list-card`) e `datatable-th-<colId>` (genérico p/ todas as listas). B1 100% eliminado: nenhum seletor (ação ou asserção) depende de texto i18n; restam apenas `cy.contains` de dado dinâmico (e-mail logado, chips digitados). `tsc` EXIT 0; frontend unit 20/20.
+
+### Dev — fix duplicidade de CPF em lideranças (2026-06-14)
+
+- **Bug (prod):** `POST /liderancas` com CPF já existente estourava 500 — `INSERT ... ON CONFLICT (id)` resolve só pela PK, mas a colisão era em `uq_liderancas_cpf_hash` (índice **global**, `WHERE cpf_hash IS NOT NULL`, cobre `deactivated`). A pré-checagem `findByCpfHash` filtrava `status='active'`, então CPF de liderança desativada (ou corrida concorrente) furava a checagem.
+- **Decisão do solicitante:** CPF é **único global** — bloquear recadastro mesmo após desativação (não há fluxo de reativação hoje).
+- **Fix:** (1) `findByCpfHash` passou a considerar todos os status; (2) `save()` captura 23505/`uq_liderancas_cpf_hash` → `LeadershipCpfConflictError` (novo erro tipado no port); (3) `RegisterLeadershipUseCase` traduz para `cpf_already_in_use` → controller já mapeia para 400 "CPF já cadastrado". `update-leadership` não grava `cpf_hash`, logo não precisa da rede de 23505.
+- **Testes:** unit `register-leadership.use-case.spec.ts` (4/4); suíte unit backend **361/361** verde; `tsc` EXIT 0. Integração `postgres-leadership.repository.int.spec.ts` (4 casos) escrita no padrão Testcontainers.
+- **BLOQUEIO (handoff QA):** suíte de integração não roda no container `scie-backend` (runtime) — sem Docker socket p/ Testcontainers + incompatibilidade `undici`/testcontainers (`webidl.util.markAsUncloneable is not a function`) trava o `global-setup` (afeta TODOS os `*.int.spec.ts`, não só este). Precisa rodar no ambiente com Docker-in-Docker usado pelo QA.
+
+### Dev — toast de erro ao salvar liderança (frontend) (2026-06-14)
+
+- **Complemento do fix backend:** `LeadershipManagementPanel` chamava `toast.success` após o `await` mas não tratava rejeição — erro do backend (ex.: 400 "CPF já cadastrado") subia sem feedback.
+- **Fix:** `handleRegister`/`handleEdit` em try/catch → `toast.error(translateApiError(error, t))` (padrão já usado no `AppShellProvider`); modal permanece aberto em erro. Fluxo de remoção ganhou `.catch` com toast.
+- **Testes:** novo `LeadershipManagementPanel.spec.tsx` (2 casos: erro mostra toast + modal aberto; sucesso mostra toast). Frontend unit/componente **22/22**; `tsc` EXIT 0.
+
+### Dev — mensagem específica em VALIDATION_FAILED (frontend) (2026-06-14)
+
+- **Bug de precedência no `translateApiError`:** ordem `apiErrors.<code>` → `apiErrors.HTTP_<status>` → `error.message`. Como existe `apiErrors.HTTP_400` ('Requisição inválida.') e NÃO existe `apiErrors.VALIDATION_FAILED`, todo 400 com code `VALIDATION_FAILED` (CPF duplicado + validações de DTO, rotuladas pelo `ApiErrorFilter` do backend) tinha a mensagem real ofuscada pelo genérico.
+- **Fix:** se `code === 'VALIDATION_FAILED'` e `message` não-vazia, retorna `error.message` antes do fallback de status. Corrigido no tradutor → beneficia liderança (consumidor via prompt 002) e todos os outros consumidores (`AppShellProvider`).
+- **Testes:** `api-error-translator.spec.ts` +2 casos; frontend unit/componente **24/24**; `tsc` EXIT 0.
+
+### Feature — e-mail opcional e único na liderança (2026-06-14)
+
+- **Decisões do solicitante:** e-mail **único** entre lideranças; presente no **cadastro e edição**; no formulário, **ao lado do nome**.
+- **Backend:** migration 023 (`email VARCHAR(320)` + `uq_liderancas_email WHERE email IS NOT NULL`); domínio `normalizeOptionalEmail` (trim+lowercase); repositório `findByEmail` + `rethrowAsConflict` (23505 de cpf_hash e email → erros tipados); use cases register/update com pré-checagem + tradução `email_already_in_use` → 400; DTOs/Swagger atualizados.
+- **⚠️ Divergência corrigida:** havia DOIS runners de migration — `migrate.ts` (CLI, usado pelo global-setup do Testcontainers) estava defasado em **m019**, enquanto `migration.service.ts` (boot) ia até m022. Sincronizei `migrate.ts` com m020–m023. Sem isso, o ambiente de integração não teria a tabela `liderancas`.
+- **Frontend:** tipo, form (nome+e-mail lado a lado, grid 3fr/2fr, cadastro e edição), zod, i18n pt-BR/en.
+- **Testes:** backend **366/366** (+5), frontend **27/27** (+3); `tsc` EXIT 0 nas duas pontas. Integração (`postgres-leadership.repository.int.spec.ts` +4 casos de e-mail) permanece bloqueada no container runtime — handoff QA (Docker-in-Docker).
+
+### Verificação — CPF do cadastro de liderança (máscara + obrigatório) (2026-06-14)
+
+- **Achado:** os dois requisitos já existiam em `LeadershipManagementPanel` (único cadastro): máscara via `transform: maskCpf` e obrigatoriedade via `required` nativo + zod (`min(1)` + 11 dígitos) no ramo de cadastro.
+- **Entrega:** 3 testes de regressão (máscara formata; campo `required`; CPF inválido bloqueia e sinaliza erro). Sem mudança de comportamento.
+- **Nota:** o `required` nativo bloqueia o submit no jsdom antes do zod — o teste de validação usa CPF inválido (não-vazio) para exercitar o refine. Frontend unit/componente **30/30**; `tsc` EXIT 0.
+
+### Feature — municípios de atuação da liderança (2026-06-14)
+
+- **Decisão do solicitante:** lista simples **UF + município** (sem bairros/votos — subconjunto do modelo do coordenador), única por liderança. UX igual à do coordenador (UF→município IBGE + Adicionar/Remover).
+- **Backend:** migration 024 `lideranca_municipios_atuacao` (FK cascade, UNIQUE(lideranca_id,state,municipality)); domínio `normalizeActivityMunicipalities`; repositório com `save`/`update` **em transação** + `replaceActivityMunicipalities`, carga agrupada (`= ANY`) sem N+1; DTO/Swagger.
+- **Frontend:** seção no painel (UF select + município IBGE + chips Adicionar/Remover), tipos, i18n.
+- **Testes:** backend **368/368** (+2), frontend **32/32** (+2 no painel); `tsc` EXIT 0 nas duas pontas. Integração (+3 casos: persistência, update substitui, cascade) bloqueada no runtime — handoff QA.
+- **Nota:** `save()` da liderança agora é transacional (antes era single query) — mantém tradução de conflito cpf/email com ROLLBACK.
+
+### Ajuste UI — municípios de atuação em DataTable + bloco no final (2026-06-14)
+
+- No formulário de liderança: lista de municípios de atuação migrada de chips para **DataTable** (colunas Município/UF/Ações-Remover); `removeActivityMunicipality` agora é por valor (a DataTable entrega a linha). Bloco **movido para o final** do formulário (após Observações).
+- Sem mudança de contrato/backend. Frontend **32/32**; `tsc` EXIT 0.
+- **Nota de ambiente:** `tsc`/vitest no container do frontend sofrem crash nativo intermitente do V8 (turboshaft, "unreachable code"/EXIT 141); re-execução resolve. Não é erro de tipo.
+- **Ajuste (2026-06-14):** removido o filtro da DataTable de municípios de atuação no modal (coluna `municipality` sem `filterable`; a `DataTable` só renderiza o controle de filtro quando há coluna filtrável). `tsc` EXIT 0; painel 10/10.
+
+### Infra — uploads de 800 MB em produção (2026-06-14)
+
+- **nginx (prod):** `client_max_body_size` 500m→850m; locations dedicadas `^~ /files` e `^~ /resultados-boletim/import` com timeouts 600s + `proxy_request_buffering off`.
+- **Multer:** `/files` 10MB→800MB; import de boletim 500MB→800MB.
+- **docker-stack backend:** `--max-old-space-size` 768→1536; `limits.memory` 2G→4G; reservation 256M→512M.
+- **⚠️ Risco aceito/documentado:** `/files` grava BYTEA com o arquivo INTEIRO em memória → 800 MB tem risco de OOM/pressão no Postgres; mitigado para 1 upload por vez. Follow-up: refatorar `/files` para disco/object storage.
+- Validação: backend `tsc` EXIT 0; `nginx -t` OK. Upload real de 800 MB ainda **não testado** (E2E/manual). Branch `feature/uploads-800mb` (a partir da develop).
+
+### Feature — import assíncrono de locais de votação (fix definitivo do 504) (2026-06-14)
+
+- **Motivação:** 504 Gateway Time-out persistente no upload de CSV de ~400 MB mesmo após corrigir nginx (streaming+600s, #120) e timeout do Node (15 min, #121/#122) — ambos já em `master`. Como o request síncrono fica pendurado, qualquer proxy (inclusive edge fora do repo) pode cortar. Solução definitiva: **tornar o import assíncrono**.
+- **Backend:** `POST /locais-de-votacao/import` agora cria um job e retorna **202 `{ jobId, status:'processing' }`**; processa em background (in-process, reusa `ImportVotingLocationsUseCase` com `onProgress` throttled). `GET /locais-de-votacao/import/jobs/:jobId` (status+counts+reportUrl|error) e `GET .../jobs/:jobId/report`. Migration **027** `voting_location_import_jobs` (id, status, imported, skipped, report jsonb, error, timestamps) nos dois runners. Novo domínio/port/repo + `VotingLocationImportJobService` (start/process/getStatus, fire-and-forget com captura de erro + unlink do /tmp). Removido o endpoint antigo `import/report/:reportId`.
+- **Frontend:** repositório com `startVotingLocationImport` + `getVotingLocationImportStatus`; o use case `importCsv` agora faz **start → polling (~2s, teto 30 min)** mantendo o shape `{ imported, skipped, reportUrl }` (UI quase inalterada; toast "Processando importação…"; chave i18n `votingLocation.import.processingAsync`).
+- **Testes:** backend **375/375** (+ service spec), frontend **43/43** (+ use case polling spec); `tsc` EXIT 0 nas duas pontas.
+- **Risco residual:** single replica → job in-process; se o backend reiniciar no meio, o job fica `processing` órfão (follow-up: varredura de recuperação). Para multi-réplica, exigiria fila externa.
+- Branch `feature/import-locais-assincrono` (de `develop`). Log: `docs/prompts/2026-06-14_019_import-locais-assincrono.md`. **Deploy:** efeito em produção só após promover a `master` (pipeline builda imagem + Portainer).
+
+### Ajuste — máscara de CPF no read-only do modo edição da liderança (2026-06-14)
+
+- **Contexto:** a máscara `000.000.000-00` já existia no campo CPF do **cadastro** (`transform: maskCpf`). Faltava no **modo edição**, onde o CPF imutável é exibido read-only (`leadership-cpf-ro`) com o valor cru.
+- **Ponto crítico (por perfil, `resolveCpfDisplay`):** `admin_nacional` recebe o CPF **em claro (11 dígitos)**; `coordenador_regional` recebe **parcialmente mascarado** (`***.982.247-**`). Aplicar `maskCpf` cegamente corromperia o valor do coordenador.
+- **Fix (só frontend, `LeadershipManagementPanel`):** read-only formata via `maskCpf` **apenas quando o valor for dígitos puros** (`/\D/.test(v) === false`); valores já mascarados são preservados intactos. `maskCpf` é idempotente sobre dígitos.
+- **Testes:** frontend **38/38** (+2: edição admin exibe `529.982.247-25`; coordenador preserva `***.982.247-**`); `tsc` EXIT 0. Backend não tocado.
+- Branch `feature/lideranca-votos-por-municipio` (escopos 012/013/014/016 acumulados). Logs: `docs/prompts/2026-06-14_015_*` (verificação) e `2026-06-14_016_*` (implementação).
+
+### QA — fix regressão E2E lideranças: telefone obrigatório quebrava o POST (2026-06-15)
+
+- **Sintoma:** `leadership.cy.ts` → "Cadastro vinculado a coordenador (REGR)" falhava com `cy.wait('@createLeadership')` timeout (15s) — "No request ever occurred". O POST nunca disparava.
+- **Causa raiz (no TESTE, não no app):** o roteiro preenchia coordenador+nome+CPF mas **não o telefone**, que virou obrigatório no cadastro (frontend zod+required desde 2026-06-14; backend desde 2026-06-15). A validação bloqueava o submit → sem POST.
+- **Correção:** (1) teste #1 passou a preencher `#leadership-contactPhone` (`VALID_PHONE='11999990000'`, ≥10 dígitos); (2) teste #2 ("bloqueia sem coordenador") estava **semanticamente obsoleto** — coordenador é opcional desde 2026-06-14, então ele passava pelo motivo errado (telefone ausente). Realinhado para "bloqueia quando o telefone obrigatório não é informado (sem POST)". Cabeçalho da suíte atualizado com as regras atuais (obrigatórios: nome, CPF, telefone; coordenador opcional).
+- **Validação:** `docker compose --profile e2e run --rm cypress` (spec de lideranças) → **2/2 passing** (backend real, POST interceptado sem efeito colateral). Execução 100% no container.
+- **Gap de cobertura FECHADO (2026-06-15):** adicionado o caso E2E "cadastra sem coordenador (vínculo opcional) — POST dispara com coordinatorId vazio". Suíte de lideranças agora **3/3 passing** via Docker.
+
+### Aprovação do solicitante — testes de QA (DEC-STR-07) (2026-06-15)
+
+- **Solicitante aprovou explicitamente** os testes desta entrega (validação zod nos formulários, telefone obrigatório no cadastro de liderança e regressão E2E de lideranças), incluindo a adição do caso E2E de coordenador opcional.
+- **Escopo aprovado:** backend unit 378/378; frontend unit/componente 72/72; `tsc` EXIT 0; Cypress lideranças 3/3 (Docker). Sem ressalvas registradas.
+- **Reaprovação:** qualquer alteração posterior a estes testes exige nova aprovação explícita.
+- Entrega consolidada no PR **#125** (`feature/validacao-formularios-zod` → `develop`, label `in-review`).
+
+### Feature — validação zod padronizada em todos os formulários (frontend) (2026-06-15)
+
+- **Decisão do solicitante:** padronizar validação com **zod** em todos os formulários (escopo "tudo, incluindo auth"); **abordagem escolhida:** reusar o padrão existente (`useState` + `safeParse` no submit) extraindo um **helper compartilhado** — sem migrar para o adapter nativo do TanStack.
+- **Helper novo:** `src/lib/validation/zod-errors.ts` → `zodErrors(schema, values)` roda `schema.safeParse` e retorna `{ [campo]: mensagem }` (first-wins por campo; ignora issues de path vazio). Spec `zod-errors.spec.ts` **4/4**.
+- **Refatorados ao helper (já usavam zod):** `LeadershipManagementPanel` (canônico), `VotingGoalsManagementPanel`, `CoordinatorManagementPanel`. `CandidateManagementPanel` já usa `validators` do TanStack Form (delega ao zod — sem trecho a trocar). `ChangePasswordSettings` mantido (usa erro único string, não mapa por campo — semântica diferente; justificado).
+- **zod aplicado onde faltava:** `LoginPage`, `MfaChallengePage` (+chaves i18n `login.validation.*` e `auth.totp.validation.*`), `VoterRegisterForm` (+`voter.register.cpfRequired/cpfInvalid/nameRequired`), `VoterPortfolioForm`, `ElectionManagementPanel`, `VotingLocationManagementPanel` (estes dois migraram texto hardcoded→i18n e reusaram `election.validation.*`/`votingLocation.validation.*` já existentes), `CoordinatorHierarchyForm`, `CoordinatorRegionsForm` (erro via callback `onError`, não há `TextBox` nesses).
+- **Sem form validável (justificado, sem mudança):** `BallotResultsPanel` (importação/exibição + filtros opcionais).
+- **Convenção firmada:** novo formulário deve definir `schema` zod (mensagens via `t(...)`) e validar no submit com `zodErrors(schema, values)`, exibindo o erro no padrão do componente (prop `error` do `TextBox` ou callback existente).
+- **Testes:** suíte frontend **72/72** (eram 32; +novos specs por formulário); `tsc -p tsconfig.app.json` **EXIT 0**. Execução no container (convenção Docker). **Nota:** `tsc` sofreu o crash nativo intermitente do V8 (EXIT 133) numa execução — re-execução resolveu (já documentado).
+- **Pendência de governança:** prompt-logger / registro técnico (`review-documentation`) e commit semântico ainda não disparados (handoff ao fluxo do originador). Branch atual: `develop`.
+
+### QA — telefone obrigatório no cadastro de liderança também no BACKEND (2026-06-15)
+
+- **Decisão do solicitante (reverte o ajuste de 2026-06-14, que era só-frontend):** `contact_phone` passa a ser **obrigatório no cadastro também no domínio/backend**. Edição continua opcional (assimetria mantida, igual ao CPF — `Leadership.create` é o único caller; `update` usa caminho próprio).
+- **Backend:** `leadership.ts` → `contactPhone` migrou de `optionalText` para `requireText(...,'contactPhone')` em `Leadership.create`; ausência/vazio lança `LeadershipValidationError` → use case traduz para `invalid_leadership_data` → controller já mapeia para **400** "Dados da liderança inválidos". DTO de cadastro: `contactPhone` de `@ApiPropertyOptional`→`@ApiProperty` (`!: string`), Swagger reflete obrigatoriedade; DTO de edição inalterado (opcional).
+- **Testes:** `register-leadership.use-case.spec.ts` — helper base passou a enviar `contactPhone`; +3 casos (persiste telefone com trim; rejeita ausente; rejeita vazio/espaços). Spec **16/16**; suíte unit backend **378/378**; `tsc` EXIT 0.
+- **Nota:** backend exige apenas não-vazio (a regra "≥10 dígitos" continua só no zod do formulário); integração `postgres-leadership.repository.int.spec.ts` não usa `Leadership.create` (monta `LeadershipRecord` direto) → não afetada; permanece bloqueada no runtime (Testcontainers/DinD) — handoff QA.
+
+### Ajuste — obrigatórios do cadastro de liderança: nome, CPF e telefone (2026-06-14)
+
+- **Decisão do solicitante:** no cadastro de liderança, **somente nome, CPF e telefone** são obrigatórios; todos os demais campos são opcionais.
+- **Mudança (só frontend, `LeadershipManagementPanel`):** telefone (`contactPhone`) passou a obrigatório **no cadastro** — `required` nativo (modo register) + zod (não-vazio + ≥ 10 dígitos). Nome e CPF já eram obrigatórios; coordenador/e-mail/endereço/votos/etc. permanecem opcionais (consolidados nos ajustes 012/013). Edição **não** bloqueia telefone (assimetria igual à do CPF, para não travar registros legados). Mensagens i18n `validation.phoneRequired`/`phoneInvalid` (pt-BR/en).
+- **Padrão mantido:** obrigatoriedade de cadastro é enforçada na camada de formulário (como o CPF); domínio/backend inalterados.
+- **Testes:** frontend **36/36** (+2: telefone required + telefone inválido bloqueia); helper e casos de cadastro atualizados para preencher telefone válido; `tsc` EXIT 0. Backend não tocado.
+- Branch `feature/lideranca-votos-por-municipio` (escopos 012/013/014 acumulados, ainda não commitados). Log: `docs/prompts/2026-06-14_014_lideranca-obrigatorios-nome-cpf-telefone.md`.
+
+### Ajuste — coordenador responsável opcional na liderança (2026-06-14)
+
+- **Decisão do solicitante:** no cadastro de liderança, o **Coordenador responsável deixa de ser obrigatório** (vínculo opcional, `coordinator_id` pode ser NULL).
+- **Backend:** migration **026** (`ALTER TABLE liderancas ALTER COLUMN coordinator_id DROP NOT NULL`, dois runners; FK + `ON DELETE CASCADE` preservados — só passa a aceitar NULL); domínio `coordinatorId` via `optionalText` (deixou de usar `requireText`), `CreateLeadershipInput`/`LeadershipRecord.coordinatorId: string | null`; use case/DTO (`@ApiPropertyOptional`)/controller (`?? null`); repositório `LeadershipRow.coordinator_id` + `rowToRecord` nullable. **Não há** validação de existência/escopo por coordenador no register, então a mudança é segura.
+- **Frontend:** removida a validação `coordinatorRequired`; `Leadership.coordinatorId`/`RegisterLeadershipData.coordinatorId` nullable; envia `null` quando vazio; rótulo "(opcional)" (`fields.coordinatorOptional`, pt-BR/en). Listagem por coordenador (`listByCoordinatorId`) não traz lideranças sem coordenador; `listAll` (admin) traz.
+- **Testes:** backend unit **370/370** (+1 "cadastra sem coordenador"); frontend **34/34** (+1 "permite cadastrar sem coordenador"); `tsc` EXIT 0 nas duas pontas. Integração (+1 caso `coordinator_id` NULL) compila; execução bloqueada no runtime (Testcontainers/Docker) — handoff QA.
+- Branch `feature/lideranca-votos-por-municipio` (mesma branch dos votos por município, ainda não commitada — **dois escopos a separar/commitar**). Log: `docs/prompts/2026-06-14_013_lideranca-coordenador-opcional.md`.
+
+### Feature — votos esperados por município na liderança (2026-06-14)
+
+- **Decisão do solicitante:** no cadastro/edição de liderança, na seção "Municípios de atuação", expectativa de votos por município é **opcional** (espelha o coordenador). Não participa da unicidade `(lideranca_id, state, municipality)`.
+- **Backend:** migration **025** (`ALTER TABLE lideranca_municipios_atuacao ADD COLUMN expected_votes INTEGER` nullable) registrada nos **dois runners** (`migrate.ts` + `migration.service.ts`); domínio `LeadershipActivityMunicipality.expectedVotes?` + `normalizeActivityMunicipalities` (inteiro ≥ 0 truncado, senão `null`); repositório (INSERT em `replaceActivityMunicipalities` + cargas single/`= ANY`); `ActivityMunicipalityDto.expectedVotes?` (Swagger); controller register/update repassam o campo.
+- **Frontend:** tipo `LeadershipActivityMunicipality.expectedVotes?`; input numérico opcional na linha de adição (grid `1fr 3fr 2fr auto`), coluna `expectedVotes` na DataTable de municípios, `editDefaults` carrega o valor; i18n pt-BR/en (`fields.municipalityExpectedVotes`, `form.activityExpectedVotesPlaceholder`).
+- **Testes:** backend unit **369/369** (+1 normalização); frontend **33/33** (+1 envio de votos); `tsc` EXIT 0 nas duas pontas. Integração (`postgres-leadership.repository.int.spec.ts`: +1 round-trip de votos, asserts atualizados com `expectedVotes`) compila (tsc) mas permanece **bloqueada no runtime** (Testcontainers exige Docker-in-Docker) — handoff QA.
+- Branch `feature/lideranca-votos-por-municipio` (a partir da develop). Log do prompt: `docs/prompts/2026-06-14_012_lideranca-votos-esperados-por-municipio.md`.
+
+### Ajuste — votos por município opcional no coordenador (2026-06-14)
+
+- O backend já persistia `expected_votes` por município incondicionalmente; o recurso estava **gatilhado só no frontend** pelo modo `by_municipality`.
+- Mudança (só frontend, `CoordinatorManagementPanel.tsx`): input e coluna de votos sempre visíveis; `toMunicipalityInputs` persiste `expectedVotes` sempre que informado (removido o gate de modo). `tsc` EXIT 0; suíte **32/32**.
+- Branch `feature/coordenador-votos-por-municipio` (a partir da develop, independente do PR #108 de lideranças). Painel de coordenador ainda sem harness de teste de componente — recomendado E2E.
+
+### Feature — detalhe do local no Mapa Espacial: seções (eleitores aptos) + candidatos de interesse (2026-06-16)
+
+- **Pedido:** em `/app/mapa/espacial`, ao clicar no local de votação, listar todas as seções com a quantidade de eleitores aptos por seção e o somatório dos votos dos candidatos de interesse no local.
+- **Diagnóstico:** a cadeia de dados já existia ociosa. Backend `GET /locais-de-votacao/:id/secoes` (`GetLocationSectionsSummaryUseCase`) já retorna seções com `registeredVoters`/`validVotes` e `candidatesOfInterest` (votos nominais somados por candidato `is_of_interest=TRUE` sobre todas as seções do local físico). Frontend já tinha use-case, hook `useLocationSectionsSummary`, repo HTTP e tipos — **mas o hook não tinha consumidor**; o `SpatialMapPanel` só exibia popup estático. Escopo real: **frontend-only**.
+- **UX (decisão do solicitante):** modal ao clicar no marcador (mantém o mapa ao fundo).
+- **Implementação:** novo `VotingLocationSectionsModal.tsx` (presentacional: totais + tabela de seções com eleitores aptos + lista de candidatos de interesse com total); `SpatialMapPanel` ganhou estado `selectedLocationId` e abre o modal pelo botão no popup do marcador e pelo clique nas linhas da tabela, consumindo `useLocationSectionsSummary`. i18n `map.detail.*` + `common.close` (pt-BR/en).
+- **Testes:** novo spec do modal **5/5**; suíte frontend **114/114**; `tsc` EXIT 0; ESLint EXIT 0. Execução no container `scie-frontend`.
+- **Pendência de governança:** validação QA independente, commit semântico (via `commit-writer`) e PR ainda não disparados. Branch atual: `chore/remove-spatial-map-voters-endpoint`. Log: `docs/prompts/2026-06-16_002_mapa-espacial-detalhe-secoes-candidatos-interesse.md`.
+
+### Fix — Mapa Espacial lista TODOS os locais correspondentes (sem paginação) (2026-06-17)
+
+- **Pedido:** em `/app/mapa/espacial`, listar todos os locais de votação correspondentes aos filtros, sem paginação na lista.
+- **Diagnóstico:** a lista era capada no frontend por `pageSize: MAX_POINTS` (500) em `SpatialMapPanel.applyFilters`. O backend já suportava `all=true` (controller capa `pageSize` em 500; `PostgresVotingLocationRepository` omite `LIMIT/OFFSET` quando `filter.all===true`), mas o parâmetro **não** era exposto no tipo de filtro do frontend nem serializado pelo repo HTTP. Escopo real: **frontend-only**.
+- **Implementação:** `ListVotingLocationsFilter` ganhou `all?: boolean`; `HttpVotingLocationRepository` serializa `all=true`; `SpatialMapPanel` passou a enviar `all: true` (removida a constante `MAX_POINTS`). Demais consumidores (`useDashboard` `pageSize:1`, `useVotingLocations`, `CoordinatorVotingLocationsPanel`) inalterados.
+- **Testes:** novo `http-voting-location.repository.spec.ts` (2 casos: serializa `all=true` e omite page/pageSize; não envia `all` quando falsy). Suíte frontend **116/116** (+2); `tsc` EXIT 0; ESLint EXIT 0. Execução no container `scie-frontend`.
+- **🚨 QA REPROVOU `all=true` no mapa (2026-06-17):** contra dados reais (`eleitor_dev`, **4.589.467** locais), um único `eleição+UF` retorna **~100.891** linhas (SP), todas com coordenadas → payload JSON **~57 MB** + ~100k marcadores Leaflet + tabela de 100k linhas = navegador travado. Pior caso por município (cidade de SP) ≈ **26.159**. Query backend ~285 ms (ok no banco). O cap `MAX_POINTS=500` existia para conter isso.
+- **Decisão do solicitante:** **reverter `all=true` no mapa** (restaurado `pageSize: MAX_POINTS`) e implementar **clustering server-side (PostGIS) por viewport/zoom + lista adequada** como feature separada. A capacidade `all` no tipo/repo HTTP (+spec) foi **mantida** (recurso de backend legítimo e reutilizável). Commit a1eeb90 (all=true no painel) superado pela correção de segurança.
+- **Pendência:** feature de clustering (BA→DBA→Dev→QA) em branch própria. Log: `docs/prompts/2026-06-17_001_mapa-espacial-listar-todos-locais-sem-paginacao.md`.
+
+### Feature — Mapa Espacial: clustering server-side (PostGIS) por viewport + lista que segue a área visível (2026-06-17)
+
+- **Pedido (após reprovação de `all=true`):** ver todos os locais sem travar → **clustering server-side por viewport/zoom**; **lista segue a área visível** (decisões do solicitante).
+- **Backend (NestJS+PostGIS):** novo `GET /locais-de-votacao/mapa/clusters` (params `electionId`, `state`, `municipalityName?`, bbox `minLng/minLat/maxLng/maxLat`, `zoom`). Repo `getMapView`: conta na viewport (pré-filtro `eleição+UF` usa índice `(election_id,state)` + bbox + coords) e ramifica por `MAP_POINT_THRESHOLD=800` → **pontos individuais** (`mode=points`) até o limite, **clusters agregados por grade** (`FLOOR(lng/cell),FLOOR(lat/cell)`, `cell` derivado do zoom via helper puro `mapGridCellSizeForZoom`) acima dele. Use case `GetVotingLocationMapViewUseCase` (valida bbox/zoom → `MapViewValidationError`→400). DTOs `MapClusterDto`/`MapViewResponseDto`; wiring no `app.module.ts`.
+- **Frontend (react-leaflet):** tipos `MapViewportRequest/MapCluster/MapView` + porta/repo `getMapView`; use case + wiring no `ServicesProvider`; `SpatialMapPanel` reescrito com `MapController` (captura o mapa + leitura debounced 350 ms em moveend/zoomend), render de clusters (raio ∝ log da contagem; clique aproxima) ou pontos; lista segue a viewport (pontos) ou hint para aproximar (clusters). i18n `map.stats.inView/shown`, `map.cluster.*`, `map.sample.loading/clusteredHint`.
+- **Validação:** backend unit **404/404**; frontend unit **118/118** (+2 `getMapView`); `tsc` EXIT 0 nas duas pontas; ESLint limpo nos arquivos alterados. **Endpoint real (admin, `eleitor_dev`):** SP inteiro/zoom 5 → `clusters`, total **98.025** em **7 clusters, 566 bytes, 0,42 s** (antes: ~57 MB/travamento); viewport pequena → `points` (571); bbox inválido → 400.
+- **Follow-ups:** DBA avaliar coluna `geometry` gerada + GiST se a agregação por bbox crescer; aprovação do solicitante (DEC-STR-07). Branch atual: `feature/mapa-espacial-detalhe-local`. Log: `docs/prompts/2026-06-17_002_mapa-espacial-clustering-server-side.md`.
+
+### Feature — perfil próprio do usuário (edição de dados pessoais) (2026-06-25)
+
+- **Campos editáveis:** nome de exibição, e-mail (exige senha atual), data de nascimento, nome do pai, nome da mãe, endereço (cep/logradouro/número/complemento/bairro/cidade/UF).
+- **Backend:** migration **035** (`birth_date`/`father_name`/`mother_name`/`address` JSONB em `internal_users`); `GET /auth/me/profile` e `PATCH /auth/me/profile` (`AccountController`); use cases `GetMyProfileUseCase`/`UpdateMyProfileUseCase`; novo JWT emitido quando e-mail muda (cliente deve armazenar `newAccessToken`).
+- **Divergência:** `GET /auth/me` já existia em `local-auth.controller.ts` → novos endpoints usam `/auth/me/profile`.
+- **Frontend:** `ProfileSettings` modal (3 seções); campo `currentPassword` condicional; `useMyProfile` hook; item "Meu perfil" no menu de conta; `TokenStorage.setToken` atualiza o JWT em caso de troca de e-mail.
+- **Testes:** backend unit **563/563** (+14), frontend **247/247** (+29); `tsc` EXIT 0 nas duas pontas. Validação HTTP real: `GET` e `PATCH /auth/me/profile` retornam dados corretos com `birthDate` em `YYYY-MM-DD`. **Pendente:** E2E Cypress + aprovação do solicitante (DEC-STR-07).
+
+### QA — E2E Cypress do Mapa Espacial (2026-06-17)
+
+- **Spec novo:** `frontend/cypress/e2e/map/spatial-map.cy.ts` — **2/2 passing** via Docker (`docker compose --profile e2e run --rm cypress`), backend+banco reais (política O4: intercept só SPY em `/locais-de-votacao/mapa/clusters`; sem stub).
+- **Casos:** (1) pré-condição de filtros — vazio inicial (`map-empty`) e botão Aplicar desabilitado até eleição+UF; (2) aplica eleição densa em SP (descoberta data-driven via `GET /locais-de-votacao?state=SP&pageSize=1`, pois o seed sintético tem eleições sem locais) → modo `clusters` → `map-cluster-hint` visível + `map-stats-total`.
+- **Achados de robustez:** a rota de clusters retorna **304** na revalidação de cache do browser (asserção de status aceita `[200,304]`); a invariante de UI usa `data-cy` (sem rótulo i18n). Seletores: `map-empty`, `map-apply`, `map-filter-election/state/municipality`, `map-stats-total`, `map-cluster-hint`, `map-location-row`, `map-marker-detail`.
+- Gate de QA do Mapa Espacial **fechado**; resta aprovação explícita do solicitante (DEC-STR-07).
+
+---
+
 ## Resumo estrutural
 
 - O protocolo comum fica centralizado em [AGENTS.md](../../AGENTS.md), e a memoria principal deve funcionar apenas como resumo duravel desse baseline.

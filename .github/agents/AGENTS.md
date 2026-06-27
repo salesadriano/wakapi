@@ -1,6 +1,6 @@
 ---
-description: "Pacote de agents reutilizaveis, agnosticos a linguagem, com memoria compartilhada versionavel."
-tools: [execute, read, edit, search, web, agent, todo]
+description: "Pacote de agents reutilizaveis, agnosticos a linguagem, com memorias versionaveis separadas por escopo."
+tools: [execute, read, edit, search, skill, web, agent, todo]
 ---
 
 # Proposito
@@ -27,35 +27,60 @@ Os dois subagents utilitarios abaixo sao obrigatorios para tarefas especificas:
 
 Este protocolo concentra passos transversais que nao devem ser repetidos literalmente nos arquivos individuais dos agents, salvo quando houver especializacao indispensavel ao papel.
 
-1. Todo agent deve carregar este `AGENTS.md` como protocolo comum obrigatorio antes de iniciar e, em seguida, ler `./memoria/MEMORIA-COMPARTILHADA.md`, recuperando ao menos contexto do projeto, decisoes ativas e backlog relevante para a demanda.
+1. Todo agent deve carregar este `AGENTS.md` como protocolo comum obrigatorio antes de iniciar e, em seguida, ler `./memoria/MEMORIA-COMPARTILHADA.md` (memoria geral) e `./memoria/MEMORIA-PROJETO.md` (memoria de projeto), recuperando contexto, decisoes ativas e backlog relevante para a demanda.
 2. Todo agent deve acionar obrigatoriamente `../skills/prompt-logger/` para cada solicitacao recebida, criando ou atualizando o log correspondente em `docs/prompts/` antes ou em conjunto com a execucao principal. Antes de persistir o prompt, o agent deve remover ou mascarar segredos, credenciais, tokens, cookies, chaves, material sensivel copiado de ambientes protegidos e quaisquer dados pessoais desnecessarios; quando houver risco de exposicao, o log deve registrar apenas uma versao sanitizada do prompt e a justificativa.
 3. Detectar stack do projeto (linguagens/frameworks) e registrar na memoria.
 4. Sempre que a tarefa envolver geracao ou atualizacao de documentacao formal, handoffs, reviews tecnicos, changelogs, sync documental ou artefatos Markdown de governanca, delegar a redacao ao subagent `documentation-writer.agent.md`, que deve operar com `GPT-5 mini (copilot)`; o agent originador continua responsavel por revisar o conteudo antes do fechamento.
 5. Sempre que a tarefa envolver geracao de mensagem de commit, resumo para commit ou preparo de commit semantico, delegar essa etapa ao subagent `commit-writer.agent.md`, que deve operar com `GPT-5 mini (copilot)`; o agent originador continua responsavel por validar o diff, o escopo e a seguranca do commit.
 6. Executar tarefa respeitando handoff entre agentes.
-7. Atualizar memoria compartilhada + historico em `./memoria/historico/`, mantendo a memoria compartilhada sucinta e orientada a decisao e deixando detalhes extensos no historico.
+7. Atualizar memoria geral e memoria de projeto conforme escopo da decisao, mantendo ambos os artefatos sucintos e orientados a decisao; detalhes extensos devem ficar em `./memoria/historico/`.
 8. Produzir documentacao em Markdown e incluir diagramas Mermaid.
 9. Manter rastreabilidade com links para arquivos alterados, testes e revisoes.
 10. O Tech Lead deve consolidar o registro das atividades executadas por todos os agents e produzir revisoes completas com decisoes, motivacoes, itens impactados, pontos validados e impacto global.
 11. Garantir que arquivos de memoria tambem sejam versionados com o projeto.
-12. Toda aprovacao explicita do solicitante sobre testes do QA, bem como qualquer reaprovacao apos alteracoes posteriores, deve ser registrada na memoria compartilhada.
+12. Toda aprovacao explicita do solicitante sobre testes do QA, bem como qualquer reaprovacao apos alteracoes posteriores, deve ser registrada na memoria de projeto e, quando houver impacto de protocolo/gate do pacote, tambem na memoria geral.
 13. Testes E2E devem usar Cypress como padrao; o Senior Developer prepara os prerequisitos do projeto e do container, quando aplicavel, e o QA Expert valida a execucao real e registra evidencias ou bloqueios.
-14. Em fluxos frontend, o System Design deve referenciar explicitamente o documento de Design System do UX Expert; essa vinculacao deve ser tratada como precondicao de validacao do QA e criterio de aceite do Tech Lead.
-15. Em fluxos frontend, a validacao do QA deve preferencialmente ser registrada com `templates/qa-validacao-frontend-template.md`; qualquer desvio deve ser justificado explicitamente.
-16. Em fechamentos formais de entrega, a aprovacao final do Tech Lead deve preferencialmente ser registrada com `templates/aprovacao-final-tech-lead-template.md`; quando houver entrega relevante, esse fechamento deve referenciar a `templates/revisao-consolidada-tech-lead-template.md`; qualquer desvio deve ser justificado explicitamente.
-17. Quando houver fluxo frontend com fechamento formal, a validacao registrada em `templates/qa-validacao-frontend-template.md` deve alimentar explicitamente a aprovacao final em `templates/aprovacao-final-tech-lead-template.md`.
-18. Revisoes consolidadas do Tech Lead devem preferencialmente usar `templates/revisao-consolidada-tech-lead-template.md`; quando existirem, PRD e ARD devem ser foco explicito dessa revisao; qualquer desvio deve ser justificado explicitamente.
-19. Quando existirem PRD, ARD, implementacao e evidencias de validacao relacionadas, o Tech Lead deve registrar explicitamente divergencias identificadas, resolucoes adotadas, impactos residuais e bloqueios remanescentes antes do fechamento final.
-20. Todos os agents devem sinalizar divergencias relevantes do seu dominio entre requisitos, arquitetura, implementacao, validacoes, UX, dados e evidencias observadas, registrando impacto e recomendacao de tratamento para alimentar a revisao consolidada e o fechamento final.
-21. Em fluxos com frontend e Design System ativo, o UX Expert define e mantem a estrutura funcional do Storybook.js alinhada ao Design System, e o Senior Developer implementa e sustenta sua configuracao tecnica no projeto.
-22. O DBA deve formalizar o handoff do plano de dimensionamento e expansao do banco ao Business Analyst, e esse handoff deve ser rastreavel para consolidacao no System Design.
-23. Todo commit preparado pelo Tech Lead para entrega formal deve seguir convencao semantica de commits, respeitar branch naming aderente ao Gitflow e ser encaminhado por Pull Request marcado para review com label dedicada e atributos nativos de review do GitHub.
-24. A governanca de Pull Requests deve permanecer centralizada em um unico workflow, responsavel por validacoes semanticas, transicoes de labels de review, comentarios automaticos no PR e sincronizacao do mesmo estado nas issues vinculadas.
-25. Todo agent deve garantir o baseline de Context7 MCP descrito na secao `Context7 MCP no projeto` deste arquivo quando o workspace ainda nao o possuir, preservando configuracoes existentes e registrando qualquer bloqueio de confianca ou habilitacao local no editor.
-26. Quando o Context7 MCP estiver disponivel e habilitado no workspace, todo agent deve usa-lo como fonte preferencial de documentacao tecnica atualizada para frameworks, bibliotecas, SDKs, integracoes e contratos, recorrendo a outras fontes apenas como complemento ou fallback justificado.
-27. Salvo quando o idioma do documento for explicitamente indicado, todo agent deve elaborar em portugues do Brasil os documentos formais de governanca do projeto, independentemente do idioma usado no prompt.
-28. Durante a execucao, todo agent deve reduzir feedbacks visuais e evitar narrar microacoes; atualizacoes intermediarias devem ser breves, eventuais e limitadas a marco relevante, bloqueio, mudanca de decisao ou proximo passo imediato.
-29. O detalhamento completo de decisoes, arquivos alterados, atividades executadas, evidencias, riscos e pendencias deve ser concentrado no encerramento da tarefa ou no handoff formal correspondente.
+14. Sempre que a tarefa envolver desenvolvimento, refatoracao ou correcao de codigo, usar `../skills/protocolo-tdd/` como referencia operacional obrigatoria, incluindo o protocolo de TDD, integracao real com Testcontainers e E2E real com Cypress quando aplicavel.
+15. Sempre que a tarefa envolver desenvolvimento, refatoracao ou correcao de codigo, usar `../skills/review-documentation/` como referencia operacional obrigatoria para produzir o registro tecnico da entrega e o commit exigido pela skill.
+16. Em fluxos frontend, o System Design deve referenciar explicitamente o documento de Design System do UX Expert; essa vinculacao deve ser tratada como precondicao de validacao do QA e criterio de aceite do Tech Lead.
+17. Em fluxos frontend, a validacao do QA deve preferencialmente ser registrada com `templates/qa-validacao-frontend-template.md`; qualquer desvio deve ser justificado explicitamente.
+18. Em fechamentos formais de entrega, a aprovacao final do Tech Lead deve preferencialmente ser registrada com `templates/aprovacao-final-tech-lead-template.md`; quando houver entrega relevante, esse fechamento deve referenciar a `templates/revisao-consolidada-tech-lead-template.md`; qualquer desvio deve ser justificado explicitamente.
+19. Quando houver fluxo frontend com fechamento formal, a validacao registrada em `templates/qa-validacao-frontend-template.md` deve alimentar explicitamente a aprovacao final em `templates/aprovacao-final-tech-lead-template.md`.
+20. Revisoes consolidadas do Tech Lead devem preferencialmente usar `templates/revisao-consolidada-tech-lead-template.md`; quando existirem, PRD e ARD devem ser foco explicito dessa revisao; qualquer desvio deve ser justificado explicitamente.
+21. Quando existirem PRD, ARD, implementacao e evidencias de validacao relacionadas, o Tech Lead deve registrar explicitamente divergencias identificadas, resolucoes adotadas, impactos residuais e bloqueios remanescentes antes do fechamento final.
+22. Todos os agents devem sinalizar divergencias relevantes do seu dominio entre requisitos, arquitetura, implementacao, validacoes, UX, dados e evidencias observadas, registrando impacto e recomendacao de tratamento para alimentar a revisao consolidada e o fechamento final.
+23. Em fluxos com frontend e Design System ativo, o UX Expert define e mantem a estrutura funcional do Storybook.js alinhada ao Design System, e o Senior Developer implementa e sustenta sua configuracao tecnica no projeto.
+24. O DBA deve formalizar o handoff do plano de dimensionamento e expansao do banco ao Business Analyst, e esse handoff deve ser rastreavel para consolidacao no System Design.
+25. Todo commit preparado pelo Tech Lead para entrega formal deve seguir convencao semantica de commits, respeitar branch naming aderente ao Gitflow e ser encaminhado por Pull Request marcado para review com label dedicada e atributos nativos de review do GitHub.
+26. A governanca de Pull Requests deve permanecer centralizada em um unico workflow, responsavel por validacoes semanticas, transicoes de labels de review, comentarios automaticos no PR e sincronizacao do mesmo estado nas issues vinculadas.
+27. Todo agent deve garantir o baseline de Context7 MCP descrito na secao `Context7 MCP no projeto` deste arquivo quando o workspace ainda nao o possuir, preservando configuracoes existentes e registrando qualquer bloqueio de confianca ou habilitacao local no editor.
+28. Quando o Context7 MCP estiver disponivel e habilitado no workspace, todo agent deve usa-lo como fonte preferencial de documentacao tecnica atualizada para frameworks, bibliotecas, SDKs, integracoes e contratos, recorrendo a outras fontes apenas como complemento ou fallback justificado.
+29. Salvo quando o idioma do documento for explicitamente indicado, todo agent deve elaborar em portugues do Brasil os documentos formais de governanca do projeto, independentemente do idioma usado no prompt.
+30. Durante a execucao, todo agent deve reduzir feedbacks visuais e evitar narrar microacoes; atualizacoes intermediarias devem ser breves, eventuais e limitadas a marco relevante, bloqueio, mudanca de decisao ou proximo passo imediato.
+31. O detalhamento completo de decisoes, arquivos alterados, atividades executadas, evidencias, riscos e pendencias deve ser concentrado no encerramento da tarefa ou no handoff formal correspondente.
+32. Decisoes sobre agents, skills, workflow, governanca, templates e regras transversais devem ser persistidas em `./memoria/MEMORIA-COMPARTILHADA.md` (memoria geral) e tambem refletidas em `./memoria/MEMORIA-PROJETO.md` (memoria de projeto), com referencia cruzada.
+33. Decisoes sobre escopo, arquitetura, implementacao, validacao, riscos e aceite de uma demanda concreta devem ser persistidas em `./memoria/MEMORIA-PROJETO.md` (memoria de projeto).
+34. Quando o solicitante pedir explicitamente persistencia em ambos os escopos para qualquer decisao, manter registro completo nas duas memorias com referencia cruzada para rastreabilidade.
+
+# Ciclo do developer com subagents utilitarios
+
+Integracao obrigatoria do ciclo de desenvolvimento para todas as entregas com implementacao:
+
+1. O Senior Developer implementa e valida tecnicamente o incremento.
+2. Antes do handoff para QA, o Senior Developer delega ao `documentation-writer.agent.md` a redacao do registro tecnico da entrega, handoff e evidencias iniciais.
+3. O QA Expert valida a implementacao com base no incremento e no registro documental produzido.
+4. Em caso de reprovacao, o ciclo retorna ao Senior Developer e o registro documental e atualizado novamente via `documentation-writer.agent.md`.
+5. Em caso de aprovacao, o Senior Developer consolida o pacote de entrega e delega ao `commit-writer.agent.md` a mensagem de commit semantica com base no diff real.
+6. O Tech Lead revisa diff, escopo, seguranca e rastreabilidade documental antes de aprovar fechamento tecnico e encaminhar PR.
+
+```mermaid
+flowchart LR
+  SD[Senior Developer implementa] --> DW[documentation-writer gera registro tecnico]
+  DW --> QA[QA Expert valida]
+  QA -->|Reprovado| SD
+  QA -->|Aprovado| CW[commit-writer gera mensagem semantica]
+  CW --> TL[Tech Lead valida e fecha entrega]
+```
 # Context7 MCP no projeto
 
 Quando o projeto estiver sendo operado em VS Code com suporte a MCP e ainda nao houver configuracao de Context7 no workspace, a instalacao padrao deve ser feita no arquivo `.vscode/mcp.json` versionado no repositorio.
@@ -129,7 +154,7 @@ Verificar, no minimo:
 - `Gemfile`
 - `*.csproj`, `global.json`
 
-Registrar resultado na memoria compartilhada, em tabela.
+Registrar resultado na memoria de projeto e, quando houver impacto transversal de protocolo/stack do pacote, tambem na memoria geral.
 
 Apos detectar a stack, cada agent deve consultar a skill correspondente ao framework ou linguagem identificada, quando disponivel em `../skills/`. Exemplos:
 
@@ -146,6 +171,7 @@ Apos detectar a stack, cada agent deve consultar a skill correspondente ao frame
 | React generico | `../skills/frontend-react-best-practices/` |
 | Cloudflare Workers | `../skills/workers-best-practices/` |
 | Autenticacao (any) | `../skills/better-auth-best-practices/` |
+| Desenvolvimento, refatoracao ou correcao de codigo | `../skills/protocolo-tdd/` |
 
 # Fluxo de colaboracao
 

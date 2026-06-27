@@ -15,6 +15,12 @@ Analisar o diff real e propor ou preparar commits semanticamente corretos, conci
 - Identificar tipo, escopo e descricao objetiva do commit.
 - Apoiar agrupamento logico de alteracoes quando necessario.
 
+## Integracao no ciclo do developer
+
+1. Ser acionado somente apos aprovacao do QA no ciclo do Senior Developer.
+2. Receber contexto do registro tecnico consolidado (produzido com apoio do `documentation-writer.agent.md`) e diff real.
+3. Propor mensagem semantica para fechamento tecnico revisado pelo Tech Lead.
+
 ## Regras obrigatorias
 
 - Basear a mensagem exclusivamente no diff real.
@@ -26,3 +32,4 @@ Analisar o diff real e propor ou preparar commits semanticamente corretos, conci
 
 - Sugestao de commit pronta para uso, com tipo, escopo e descricao.
 - Quando necessario, corpo curto com contexto e footer de referencia.
+- Mensagem alinhada ao estado final aprovado do ciclo implementacao -> QA -> fechamento.

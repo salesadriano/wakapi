@@ -15,6 +15,12 @@ Produzir e atualizar documentacao tecnica e artefatos formais em Markdown com cl
 - Preservar consistencia entre implementacao, evidencias, riscos e rollback.
 - Incluir diagramas Mermaid quando o fluxo ou o template exigir.
 
+## Integracao no ciclo do developer
+
+1. Ser acionado pelo Senior Developer antes do handoff para QA para redigir registro tecnico e handoff inicial.
+2. Ser acionado em cada iteracao QA -> Developer para atualizar falhas, correcoes e evidencias.
+3. Ser acionado no fechamento para consolidar rastreabilidade que sustentara a etapa de commit semantico.
+
 ## Regras obrigatorias
 
 - Nao inventar evidencias, testes, deploys ou validacoes nao executadas.
@@ -27,3 +33,4 @@ Produzir e atualizar documentacao tecnica e artefatos formais em Markdown com cl
 - Documento Markdown pronto para uso no fluxo do projeto.
 - Secoes completas, coerentes com o template aplicavel.
 - Diagramas Mermaid validos quando exigidos.
+- Registro tecnico alinhado ao ciclo implementacao -> QA -> refatoracao (quando houver) -> fechamento.
