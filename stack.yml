@@ -1,29 +1,80 @@
+# Wakapi — Docker Swarm stack for Portainer
+#
+# Deploy via Portainer: Stacks -> Add stack -> (Git repository or Web editor),
+# point at this file, then fill the environment variables (see
+# .env.portainer.example) in the "Environment variables" section.
+#
+# Notes:
+# - Wakapi runs background schedulers in-process (aggregation, reports,
+#   housekeeping), so it MUST stay at replicas: 1. Scale the database instead.
+# - Secrets (DB password / password salt) are required and have no default, so a
+#   misconfigured deploy fails fast. For a secrets-based hardening variant see
+#   docs/deploy/portainer-swarm.md.
+
+version: "3.8"
+
 services:
   wakapi:
     image: ${WAKAPI_IMAGE_REPO:-ghcr.io/salesadriano/wakapi}:${WAKAPI_IMAGE_TAG:-latest}
     init: true
     stop_grace_period: 30s
     ports:
+      # host (ingress) port -> container port 3000. WAKAPI_PUBLISHED_PORT is the
+      # externally exposed port; it is intentionally NOT named WAKAPI_PORT to
+      # avoid clashing with Wakapi's own internal listen-port config variable.
       - target: 3000
-        published: ${WAKAPI_PORT:-3000}
+        published: ${WAKAPI_PUBLISHED_PORT:-3000}
         protocol: tcp
         mode: ingress
     environment:
-      # See README.md and config.default.yml for all config options
-      WAKAPI_DB_TYPE: "postgres"
-      WAKAPI_DB_NAME: "wakapi"
-      WAKAPI_DB_USER: "wakapi"
-      WAKAPI_DB_HOST: "db"
+      # --- database (Postgres service below) ---
+      WAKAPI_DB_TYPE: postgres
+      WAKAPI_DB_HOST: db
       WAKAPI_DB_PORT: "5432"
-      WAKAPI_DB_PASSWORD: "${WAKAPI_DB_PASSWORD:-changeme}"
-      WAKAPI_PASSWORD_SALT: "${WAKAPI_PASSWORD_SALT:-changeme}"
-      WAKAPI_MAIL_SMTP_PASS: "${WAKAPI_MAIL_SMTP_PASS:-}"
+      WAKAPI_DB_NAME: ${WAKAPI_DB_NAME:-wakapi}
+      WAKAPI_DB_USER: ${WAKAPI_DB_USER:-wakapi}
+      WAKAPI_DB_PASSWORD: ${WAKAPI_DB_PASSWORD:?WAKAPI_DB_PASSWORD is required}
+      # --- security ---
+      WAKAPI_PASSWORD_SALT: ${WAKAPI_PASSWORD_SALT:?WAKAPI_PASSWORD_SALT is required}
+      # set a stable, random key so sessions/flash messages survive restarts
+      WAKAPI_SESSION_KEY: ${WAKAPI_SESSION_KEY:-}
+      # keep "true" behind a TLS-terminating proxy serving plain HTTP to wakapi;
+      # set "false" only if wakapi itself is reached directly over HTTPS
+      WAKAPI_INSECURE_COOKIES: ${WAKAPI_INSECURE_COOKIES:-true}
+      # trust X-Forwarded-* from the proxy (correct client IPs for rate limiting)
+      WAKAPI_ENABLE_PROXY: ${WAKAPI_ENABLE_PROXY:-true}
+      # --- app ---
+      WAKAPI_PUBLIC_URL: ${WAKAPI_PUBLIC_URL:-http://localhost:3000}
+      WAKAPI_BASE_PATH: ${WAKAPI_BASE_PATH:-/}
+      WAKAPI_ALLOW_SIGNUP: ${WAKAPI_ALLOW_SIGNUP:-true}
+      WAKAPI_LEADERBOARD_ENABLED: ${WAKAPI_LEADERBOARD_ENABLED:-true}
+      # --- mail (optional; leave WAKAPI_MAIL_ENABLED=false to disable) ---
+      WAKAPI_MAIL_ENABLED: ${WAKAPI_MAIL_ENABLED:-false}
+      WAKAPI_MAIL_SENDER: ${WAKAPI_MAIL_SENDER:-}
+      WAKAPI_MAIL_SMTP_HOST: ${WAKAPI_MAIL_SMTP_HOST:-}
+      WAKAPI_MAIL_SMTP_PORT: ${WAKAPI_MAIL_SMTP_PORT:-}
+      WAKAPI_MAIL_SMTP_USER: ${WAKAPI_MAIL_SMTP_USER:-}
+      WAKAPI_MAIL_SMTP_PASS: ${WAKAPI_MAIL_SMTP_PASS:-}
+      WAKAPI_MAIL_SMTP_TLS: ${WAKAPI_MAIL_SMTP_TLS:-false}
     volumes:
       - wakapi-data:/data
     networks:
       - wakapi
+    healthcheck:
+      test: ["CMD", "/app/healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      # generous start period to allow database migrations on first boot
+      start_period: 120s
     deploy:
       replicas: 1
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          memory: 128M
       update_config:
         parallelism: 1
         delay: 10s
@@ -36,29 +87,55 @@ services:
         order: stop-first
       restart_policy:
         condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      # --- optional: expose through a Traefik (swarm provider) reverse proxy ---
+      # labels:
+      #   - traefik.enable=true
+      #   - traefik.docker.network=traefik-public
+      #   - traefik.http.routers.wakapi.rule=Host(`wakapi.example.com`)
+      #   - traefik.http.routers.wakapi.entrypoints=websecure
+      #   - traefik.http.routers.wakapi.tls.certresolver=le
+      #   - traefik.http.services.wakapi.loadbalancer.server.port=3000
 
   db:
-    image: postgres:17
+    image: postgres:17-alpine
     stop_grace_period: 60s
     environment:
-      POSTGRES_USER: "wakapi"
-      POSTGRES_PASSWORD: "${WAKAPI_DB_PASSWORD:-changeme}"
-      POSTGRES_DB: "wakapi"
+      POSTGRES_DB: ${WAKAPI_DB_NAME:-wakapi}
+      POSTGRES_USER: ${WAKAPI_DB_USER:-wakapi}
+      POSTGRES_PASSWORD: ${WAKAPI_DB_PASSWORD:?WAKAPI_DB_PASSWORD is required}
     volumes:
       - wakapi-db-data:/var/lib/postgresql/data
     networks:
       - wakapi
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     deploy:
       replicas: 1
       placement:
         constraints:
+          # pin the database to a stable node so its local volume is always found
           - node.role == manager
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          memory: 128M
       restart_policy:
         condition: on-failure
+        delay: 5s
 
 volumes:
   wakapi-data: {}
   wakapi-db-data: {}
 
 networks:
-  wakapi: {}
+  wakapi:
+    driver: overlay
+    attachable: true
