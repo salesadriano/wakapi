@@ -22,12 +22,12 @@
         <span class="text-foreground hidden lg:inline-block">Projects</span>
     </a>
 
-    {{ if .User }}{{ if .User.IsAdmin }}
+    {{ if .SharedLoggedInViewModel.User.IsAdmin }}
     <a class="menu-item" href="admin">
         <span class="iconify inline text-2xl text-secondary" data-icon="ic:round-admin-panel-settings"></span>
         <span class="text-foreground hidden lg:inline-block">Admin</span>
     </a>
-    {{ end }}{{ end }}
+    {{ end }}
 
     {{ if false }}
     <div class="menu-item hidden sm:flex imp:cursor-not-allowed">
