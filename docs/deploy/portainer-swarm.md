@@ -62,8 +62,12 @@ Gere segredos com `openssl rand -hex 32`.
 
 ## 5. Endurecimento com Docker Secrets (opcional, recomendado)
 
+> Já existe um stack pronto para esta abordagem: [`stack.secrets.yml`](../../stack.secrets.yml).
+> Basta criar os secrets abaixo e fazer o deploy dele no lugar do `stack.yml`.
+
 O Wakapi lê qualquer variável `WAKAPI_*` também via arquivo, usando o sufixo
-`_FILE`. Para não expor senhas como env, crie secrets no Swarm e ajuste o stack:
+`_FILE` (atenção: não defina a variável base **e** a `_FILE` ao mesmo tempo — o
+Wakapi aborta). Para não expor senhas como env, crie secrets no Swarm:
 
 ```bash
 printf '%s' 'senha-forte'   | docker secret create wakapi_db_password -
