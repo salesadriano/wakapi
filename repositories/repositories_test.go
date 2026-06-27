@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/glebarez/sqlite"
+	"github.com/muety/wakapi/config"
 	"github.com/muety/wakapi/models"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -15,6 +16,12 @@ import (
 // the repository tests. Each test gets its own database via t.TempDir().
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
+
+	// CustomTime.Scan reads config.Get() (postgres timezone hack); without an
+	// initialized config it would nil-panic on the first time-valued column.
+	if config.Get() == nil {
+		config.Set(config.Empty())
+	}
 
 	dbFile := filepath.Join(t.TempDir(), "wakapi_test.db")
 	db, err := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})

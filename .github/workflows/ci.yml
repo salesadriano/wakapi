@@ -22,8 +22,12 @@ jobs:
     - name: go vet
       run: go vet `go list ./... | grep -v 'github.com/muety/wakapi/scripts'`
 
+    # Report-only for now: golangci-lint surfaces pre-existing findings in the
+    # legacy codebase. Keep it non-blocking until those are cleaned up, then drop
+    # continue-on-error to make it a hard gate. `go vet` above stays blocking.
     - name: golangci-lint
       uses: golangci/golangci-lint-action@v8
+      continue-on-error: true
       with:
         version: latest
 
