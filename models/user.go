@@ -272,8 +272,13 @@ func ValidateUsername(username string) bool {
 	return len(username) >= 1 && username != "current" && !strings.Contains(username, " ")
 }
 
+// MinPasswordLength is the minimum number of characters required for a user
+// password. Only enforced for newly set/changed passwords; existing passwords
+// remain valid until changed.
+const MinPasswordLength = 8
+
 func ValidatePassword(password string) bool {
-	return len(password) >= 6
+	return len(password) >= MinPasswordLength
 }
 
 func ValidateCaptcha(captchaId, captchaValue string) bool {
