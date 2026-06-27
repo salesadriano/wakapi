@@ -4,6 +4,29 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    name: 'Lint & vet'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v5
+
+    - name: Set up Go 1.x
+      uses: actions/setup-go@v6
+      with:
+        go-version: ^1.26
+      id: go
+
+    - name: go vet
+      run: go vet `go list ./... | grep -v 'github.com/muety/wakapi/scripts'`
+
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v8
+      with:
+        version: latest
+
   test:
     name: 'Unit- & API tests'
     # because of https://github.com/usebruno/bruno/issues/5003, we currently need Node.js v20, so pinning runner image at ubuntu 24.04 for now
@@ -34,6 +57,44 @@ jobs:
 
     - name: Mail Tests
       run: ./testing/run_mail_tests.sh
+
+  coverage:
+    name: 'Coverage ratchet'
+    # Only enforce on PRs, where we can compare against the base branch.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go 1.x
+      uses: actions/setup-go@v6
+      with:
+        go-version: ^1.26
+      id: go
+
+    - name: Measure & enforce coverage (base vs head)
+      run: |
+        set -e
+        measure() {
+          local pkgs
+          pkgs=$(go list ./... | grep -v 'github.com/muety/wakapi/scripts')
+          CGO_ENABLED=0 go test -coverprofile="$1" $pkgs >/dev/null 2>&1 || true
+          go tool cover -func="$1" 2>/dev/null | awk '/^total:/ {gsub("%","",$3); print $3+0}' || echo 0
+        }
+        git checkout --quiet ${{ github.event.pull_request.base.sha }}
+        BASE=$(measure base.out); BASE=${BASE:-0}
+        git checkout --quiet ${{ github.sha }}
+        HEAD=$(measure head.out); HEAD=${HEAD:-0}
+        echo "Base coverage: ${BASE}%  |  Head coverage: ${HEAD}%"
+        awk -v b="$BASE" -v h="$HEAD" 'BEGIN {
+          if (h + 0.01 < b) { printf "FAIL: coverage decreased from %.2f%% to %.2f%%\n", b, h; exit 1 }
+          printf "OK: coverage %.2f%% -> %.2f%%\n", b, h
+        }'
 
   migration:
     name: Migration tests

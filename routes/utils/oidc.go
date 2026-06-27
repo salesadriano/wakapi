@@ -98,7 +98,7 @@ func ExtractOidcAuth(w http.ResponseWriter, r *http.Request) (*conf.IdTokenPaylo
 	}
 	rawIdToken, ok := authToken.Extra("id_token").(string)
 	if !ok {
-		return nil, err
+		return nil, errors.New("refreshed token response did not contain an id_token")
 	}
 	idTokenPayload, err = DecodeOidcIdToken(rawIdToken, provider, oidcContext)
 	if err != nil {
