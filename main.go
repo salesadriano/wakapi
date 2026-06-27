@@ -254,6 +254,7 @@ func main() {
 	setupHandler := routes.NewSetupHandler(userService)
 	leaderboardHandler := condition.Ternary[bool, routes.Handler](config.App.LeaderboardEnabled, routes.NewLeaderboardHandler(userService, leaderboardService), routes.NewNoopHandler())
 	miscHandler := routes.NewMiscHandler(userService)
+	adminHandler := routes.NewAdminHandler(userService, heartbeatService)
 
 	// Setup Routing
 	router := chi.NewRouter()
@@ -296,6 +297,7 @@ func main() {
 	settingsHandler.RegisterRoutes(rootRouter)
 	subscriptionHandler.RegisterRoutes(rootRouter)
 	miscHandler.RegisterRoutes(rootRouter)
+	adminHandler.RegisterRoutes(rootRouter)
 
 	// API route registrations
 	rootApiHandler.RegisterRoutes(apiRouter)

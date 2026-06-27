@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+
+{{ template "head.tpl.html" . }}
+
+<body class="relative bg-background text-muted p-4 pt-10 flex flex-col min-h-screen max-w-screen-xl mx-auto">
+
+{{ template "alerts.tpl.html" . }}
+
+{{ if .User }}
+{{ template "menu-main.tpl.html" . }}
+{{ end }}
+
+<main class="mt-10 flex-grow w-full">
+    <div class="w-full">
+        <h1 class="text-3xl font-semibold text-foreground mb-1">Admin Dashboard</h1>
+        <p class="text-sm text-muted mb-8">Manage all developers and review server-wide activity. Administrator access only.</p>
+
+        <!-- summary cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+            <div class="bg-card rounded-md p-4">
+                <span class="block text-xs uppercase text-muted">Developers</span>
+                <span class="block text-2xl font-semibold text-foreground">{{ .TotalUsers }}</span>
+            </div>
+            <div class="bg-card rounded-md p-4">
+                <span class="block text-xs uppercase text-muted">Total heartbeats</span>
+                <span class="block text-2xl font-semibold text-foreground">{{ .TotalHeartbeats }}</span>
+            </div>
+            <div class="bg-card rounded-md p-4">
+                <span class="block text-xs uppercase text-muted">Currently online</span>
+                <span class="block text-2xl font-semibold text-foreground">{{ .OnlineUsers }}</span>
+            </div>
+        </div>
+
+        <!-- developers table -->
+        <div class="bg-card rounded-md p-4 overflow-x-auto">
+            <h2 class="text-lg font-semibold text-foreground mb-4">Developers</h2>
+            <table class="w-full text-sm text-left whitespace-nowrap">
+                <thead class="text-xs uppercase text-muted border-b border-gray-700">
+                    <tr>
+                        <th class="py-2 pr-4">#</th>
+                        <th class="py-2 pr-4">Developer</th>
+                        <th class="py-2 pr-4">Email</th>
+                        <th class="py-2 pr-4 text-right">Heartbeats</th>
+                        <th class="py-2 pr-4">Last activity</th>
+                        <th class="py-2 pr-4">Role</th>
+                        <th class="py-2 pr-4 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ range $i, $entry := .Users }}
+                    <tr class="border-b border-gray-800">
+                        <td class="py-2 pr-4 text-muted">{{ add $i 1 }}</td>
+                        <td class="py-2 pr-4 text-foreground font-medium">{{ $entry.User.ID }}</td>
+                        <td class="py-2 pr-4">{{ $entry.User.Email }}</td>
+                        <td class="py-2 pr-4 text-right">{{ $entry.HeartbeatCount }}</td>
+                        <td class="py-2 pr-4">{{ $entry.LastSeenLabel }}</td>
+                        <td class="py-2 pr-4">
+                            {{ if $entry.User.IsAdmin }}
+                            <span class="chip text-accent">admin</span>
+                            {{ else }}
+                            <span class="text-muted">developer</span>
+                            {{ end }}
+                        </td>
+                        <td class="py-2 pr-4">
+                            <div class="flex gap-x-2 justify-end">
+                                <form action="admin/users/{{ $entry.User.ID }}/toggle-admin" method="post" class="inline">
+                                    <button type="submit" class="btn-default btn-small">{{ if $entry.User.IsAdmin }}Revoke admin{{ else }}Make admin{{ end }}</button>
+                                </form>
+                                <form action="admin/users/{{ $entry.User.ID }}/reset-apikey" method="post" class="inline" onsubmit="return confirm('Reset the API key for {{ $entry.User.ID }}? Their current key will stop working immediately.')">
+                                    <button type="submit" class="btn-default btn-small">Reset key</button>
+                                </form>
+                                <form action="admin/users/{{ $entry.User.ID }}/delete" method="post" class="inline" onsubmit="return confirm('Permanently delete user {{ $entry.User.ID }} and all of their data? This cannot be undone.')">
+                                    <button type="submit" class="btn-danger btn-small">Delete</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</main>
+
+{{ template "footer.tpl.html" . }}
+
+{{ template "foot.tpl.html" . }}
+</body>
+
+</html>
