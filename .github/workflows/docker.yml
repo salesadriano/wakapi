@@ -1,6 +1,9 @@
 name: Publish Docker Image
 
 on:
+  push:
+    branches:
+      - develop
   release:
     types:
       - published
@@ -48,12 +51,14 @@ jobs:
         with:
           images: ${{ steps.image-target.outputs.image }}
           tags: |
-            type=raw,value=latest
-            type=raw,value=alpine
-            type=raw,value=${{ github.event.release.tag_name }}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
+            type=raw,value=alpine,enable=${{ github.event_name == 'release' }}
+            type=raw,value=${{ github.event.release.tag_name }},enable=${{ github.event_name == 'release' }}
             type=semver,pattern={{major}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{version}}
+            type=ref,event=branch
+            type=sha,format=short,enable=${{ github.event_name == 'push' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -61,5 +66,7 @@ jobs:
           context: .
           file: Dockerfile
           push: true
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          # full multi-arch fan-out only for releases; develop builds stay amd64
+          # for fast per-commit feedback
+          platforms: ${{ github.event_name == 'release' && 'linux/amd64,linux/arm64,linux/arm/v7' || 'linux/amd64' }}
           tags: ${{ steps.meta.outputs.tags }}
