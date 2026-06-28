@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -42,10 +44,19 @@ func adminActionRouter(principal *models.User, h *AdminHandler) chi.Router {
 	r.Use(middlewares.NewSharedDataMiddleware())
 	r.Use(injectPrincipal(principal))
 	r.Use(h.requireAdmin)
+	r.Post("/admin/users", h.PostCreateUser)
+	r.Post("/admin/users/{id}/edit", h.PostEditUser)
+	r.Post("/admin/users/{id}/reset-password", h.PostResetPassword)
 	r.Post("/admin/users/{id}/toggle-admin", h.PostToggleAdmin)
 	r.Post("/admin/users/{id}/reset-apikey", h.PostResetApiKey)
 	r.Post("/admin/users/{id}/delete", h.PostDeleteUser)
 	return r
+}
+
+func postForm(target string, values url.Values) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, target, strings.NewReader(values.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return req
 }
 
 // The headline requirement: the dashboard must be reachable by administrators only.
@@ -157,6 +168,87 @@ func TestAdminHandler_PostToggleAdmin_TogglesOtherUser(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/admin/users/joe/toggle-admin", nil)
 	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusFound, rec.Code)
+	userMock.AssertCalled(t, "Update", mock.Anything)
+}
+
+func TestAdminHandler_PostCreateUser_Valid(t *testing.T) {
+	conf.Set(conf.Empty())
+	admin := &models.User{ID: "root", IsAdmin: true}
+	created := &models.User{ID: "newdev"}
+
+	userMock := new(mocks.UserServiceMock)
+	userMock.On("CreateOrGet", mock.MatchedBy(func(s *models.Signup) bool {
+		return s.Username == "newdev" && s.Email == "new@example.test"
+	}), false).Return(created, true, nil)
+
+	h := newAdminTestHandler(userMock)
+	router := adminActionRouter(admin, h)
+
+	form := url.Values{"username": {"newdev"}, "email": {"new@example.test"}, "password": {"supersecret"}}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, postForm("/admin/users", form))
+
+	assert.Equal(t, http.StatusFound, rec.Code)
+	userMock.AssertCalled(t, "CreateOrGet", mock.Anything, false)
+}
+
+func TestAdminHandler_PostCreateUser_WeakPasswordRejected(t *testing.T) {
+	conf.Set(conf.Empty())
+	admin := &models.User{ID: "root", IsAdmin: true}
+
+	userMock := new(mocks.UserServiceMock)
+	h := newAdminTestHandler(userMock)
+	router := adminActionRouter(admin, h)
+
+	form := url.Values{"username": {"newdev"}, "password": {"short"}}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, postForm("/admin/users", form))
+
+	assert.Equal(t, http.StatusFound, rec.Code)
+	userMock.AssertNotCalled(t, "CreateOrGet", mock.Anything, mock.Anything)
+}
+
+func TestAdminHandler_PostEditUser(t *testing.T) {
+	conf.Set(conf.Empty())
+	admin := &models.User{ID: "root", IsAdmin: true}
+	target := &models.User{ID: "joe", Email: "old@example.test"}
+
+	userMock := new(mocks.UserServiceMock)
+	userMock.On("GetUserById", "joe").Return(target, nil)
+	userMock.On("Update", mock.MatchedBy(func(u *models.User) bool {
+		return u.ID == "joe" && u.Email == "new@example.test"
+	})).Return(target, nil)
+
+	h := newAdminTestHandler(userMock)
+	router := adminActionRouter(admin, h)
+
+	form := url.Values{"email": {"new@example.test"}}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, postForm("/admin/users/joe/edit", form))
+
+	assert.Equal(t, http.StatusFound, rec.Code)
+	userMock.AssertCalled(t, "Update", mock.Anything)
+}
+
+func TestAdminHandler_PostResetPassword(t *testing.T) {
+	conf.Set(conf.Empty())
+	admin := &models.User{ID: "root", IsAdmin: true}
+	target := &models.User{ID: "joe"}
+
+	userMock := new(mocks.UserServiceMock)
+	userMock.On("GetUserById", "joe").Return(target, nil)
+	userMock.On("Update", mock.MatchedBy(func(u *models.User) bool {
+		return u.ID == "joe" && u.Password != "" // a hash was set
+	})).Return(target, nil)
+
+	h := newAdminTestHandler(userMock)
+	router := adminActionRouter(admin, h)
+
+	form := url.Values{"password": {"supersecret"}}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, postForm("/admin/users/joe/reset-password", form))
 
 	assert.Equal(t, http.StatusFound, rec.Code)
 	userMock.AssertCalled(t, "Update", mock.Anything)

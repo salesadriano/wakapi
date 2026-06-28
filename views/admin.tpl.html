@@ -32,27 +32,54 @@
             </div>
         </div>
 
+        <!-- create user -->
+        <details class="bg-card rounded-md p-4 mb-6">
+            <summary class="cursor-pointer text-foreground font-semibold">Create user</summary>
+            <form action="admin/users" method="post" class="mt-4 flex flex-col sm:flex-row gap-3 sm:items-end flex-wrap">
+                <label class="flex flex-col text-xs text-muted">Username
+                    <input name="username" required class="bg-background text-foreground rounded px-2 py-1 mt-1" autocomplete="off">
+                </label>
+                <label class="flex flex-col text-xs text-muted">Email (optional)
+                    <input name="email" type="email" class="bg-background text-foreground rounded px-2 py-1 mt-1" autocomplete="off">
+                </label>
+                <label class="flex flex-col text-xs text-muted">Initial password (min 8)
+                    <input name="password" type="password" required minlength="8" class="bg-background text-foreground rounded px-2 py-1 mt-1" autocomplete="new-password">
+                </label>
+                <label class="flex items-center gap-x-2 text-xs text-muted">
+                    <input name="is_admin" type="checkbox" value="1"> administrator
+                </label>
+                <button type="submit" class="btn-primary btn-small">Create</button>
+            </form>
+        </details>
+
+        <!-- search -->
+        <form action="admin" method="get" class="mb-4 flex gap-x-2">
+            <input name="q" value="{{ .Search }}" placeholder="Search by username or email" class="bg-card text-foreground rounded px-3 py-1 w-full sm:w-80">
+            <button type="submit" class="btn-default btn-small">Search</button>
+            {{ if .Search }}<a href="admin" class="btn-default btn-small">Clear</a>{{ end }}
+        </form>
+
         <!-- developers table -->
         <div class="bg-card rounded-md p-4 overflow-x-auto">
-            <h2 class="text-lg font-semibold text-foreground mb-4">Developers</h2>
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-semibold text-foreground">Developers</h2>
+                <span class="text-xs text-muted">{{ .TotalMatched }} match(es)</span>
+            </div>
             <table class="w-full text-sm text-left whitespace-nowrap">
                 <thead class="text-xs uppercase text-muted border-b border-gray-700">
                     <tr>
-                        <th class="py-2 pr-4">#</th>
                         <th class="py-2 pr-4">Developer</th>
-                        <th class="py-2 pr-4">Email</th>
                         <th class="py-2 pr-4 text-right">Heartbeats</th>
                         <th class="py-2 pr-4">Last activity</th>
                         <th class="py-2 pr-4">Role</th>
+                        <th class="py-2 pr-4">Account</th>
                         <th class="py-2 pr-4 text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {{ range $i, $entry := .Users }}
-                    <tr class="border-b border-gray-800">
-                        <td class="py-2 pr-4 text-muted">{{ add $i 1 }}</td>
+                    {{ range $entry := .Users }}
+                    <tr class="border-b border-gray-800 align-top">
                         <td class="py-2 pr-4 text-foreground font-medium">{{ $entry.User.ID }}</td>
-                        <td class="py-2 pr-4">{{ $entry.User.Email }}</td>
                         <td class="py-2 pr-4 text-right">{{ $entry.HeartbeatCount }}</td>
                         <td class="py-2 pr-4">{{ $entry.LastSeenLabel }}</td>
                         <td class="py-2 pr-4">
@@ -61,6 +88,18 @@
                             {{ else }}
                             <span class="text-muted">developer</span>
                             {{ end }}
+                        </td>
+                        <td class="py-2 pr-4">
+                            <div class="flex flex-col gap-y-1">
+                                <form action="admin/users/{{ $entry.User.ID }}/edit" method="post" class="flex gap-x-1 items-center">
+                                    <input name="email" type="email" value="{{ $entry.User.Email }}" placeholder="email" class="bg-background text-foreground rounded px-2 py-1 text-xs w-44">
+                                    <button type="submit" class="btn-default btn-small">Save</button>
+                                </form>
+                                <form action="admin/users/{{ $entry.User.ID }}/reset-password" method="post" class="flex gap-x-1 items-center" onsubmit="return confirm('Set a new password for {{ $entry.User.ID }}?')">
+                                    <input name="password" type="password" minlength="8" placeholder="new password" class="bg-background text-foreground rounded px-2 py-1 text-xs w-44" autocomplete="new-password">
+                                    <button type="submit" class="btn-default btn-small">Set pw</button>
+                                </form>
+                            </div>
                         </td>
                         <td class="py-2 pr-4">
                             <div class="flex gap-x-2 justify-end">
@@ -76,9 +115,22 @@
                             </div>
                         </td>
                     </tr>
+                    {{ else }}
+                    <tr><td colspan="6" class="py-4 text-center text-muted">No users found.</td></tr>
                     {{ end }}
                 </tbody>
             </table>
+
+            <!-- pagination -->
+            {{ if gt .TotalPages 1 }}
+            <div class="flex justify-between items-center mt-4 text-sm">
+                <span class="text-muted">Page {{ .Page }} of {{ .TotalPages }}</span>
+                <div class="flex gap-x-2">
+                    {{ if .HasPrev }}<a href="admin?q={{ .Search }}&page={{ .PrevPage }}" class="btn-default btn-small">Previous</a>{{ end }}
+                    {{ if .HasNext }}<a href="admin?q={{ .Search }}&page={{ .NextPage }}" class="btn-default btn-small">Next</a>{{ end }}
+                </div>
+            </div>
+            {{ end }}
         </div>
     </div>
 </main>

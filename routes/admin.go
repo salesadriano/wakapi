@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -13,7 +14,10 @@ import (
 	"github.com/muety/wakapi/models/view"
 	routeutils "github.com/muety/wakapi/routes/utils"
 	"github.com/muety/wakapi/services"
+	"github.com/muety/wakapi/utils"
 )
+
+const adminUsersPageSize = 25
 
 type AdminHandler struct {
 	config           *conf.Config
@@ -40,6 +44,9 @@ func (h *AdminHandler) RegisterRoutes(router chi.Router) {
 	r.Use(h.requireAdmin)
 
 	r.Get("/", h.GetIndex)
+	r.Post("/users", h.PostCreateUser)
+	r.Post("/users/{id}/edit", h.PostEditUser)
+	r.Post("/users/{id}/reset-password", h.PostResetPassword)
 	r.Post("/users/{id}/toggle-admin", h.PostToggleAdmin)
 	r.Post("/users/{id}/reset-apikey", h.PostResetApiKey)
 	r.Post("/users/{id}/delete", h.PostDeleteUser)
@@ -72,19 +79,36 @@ func (h *AdminHandler) GetIndex(w http.ResponseWriter, r *http.Request) {
 
 func (h *AdminHandler) buildViewModel(r *http.Request, w http.ResponseWriter) *view.AdminViewModel {
 	principal := middlewares.GetPrincipal(r)
+	rawSearch := strings.TrimSpace(r.URL.Query().Get("q"))
+	search := strings.ToLower(rawSearch)
+
+	pageParams := utils.ParsePageParamsWithDefault(r, 1, adminUsersPageSize)
+	if pageParams.Page < 1 {
+		pageParams.Page = 1
+	}
+	if pageParams.PageSize < 1 {
+		pageParams.PageSize = adminUsersPageSize
+	}
+
+	base := func(msg *view.Messages) view.SharedLoggedInViewModel {
+		return view.SharedLoggedInViewModel{
+			SharedViewModel: view.NewSharedViewModel(h.config, msg),
+			User:            principal,
+		}
+	}
 
 	users, err := h.userService.GetAll()
 	if err != nil {
 		conf.Log().Request(r).Error("failed to load users for admin dashboard", "error", err)
 		return routeutils.WithSessionMessages(&view.AdminViewModel{
-			SharedLoggedInViewModel: view.SharedLoggedInViewModel{
-				SharedViewModel: view.NewSharedViewModel(h.config, &view.Messages{Error: criticalError}),
-				User:            principal,
-			},
+			SharedLoggedInViewModel: base(&view.Messages{Error: criticalError}),
+			Page:                    pageParams.Page,
+			PageSize:                pageParams.PageSize,
+			Search:                  rawSearch,
 		}, r, w)
 	}
 
-	// heartbeat counts per user (single batch query, avoids N+1)
+	// batch stats over all users to avoid N+1
 	countByUser := map[string]int64{}
 	if counts, err := h.heartbeatService.CountByUsers(users); err == nil {
 		for _, c := range counts {
@@ -93,8 +117,6 @@ func (h *AdminHandler) buildViewModel(r *http.Request, w http.ResponseWriter) *v
 	} else {
 		conf.Log().Request(r).Warn("failed to count heartbeats per user", "error", err)
 	}
-
-	// last activity per user (single batch query)
 	lastByUser := map[string]time.Time{}
 	if last, err := h.heartbeatService.GetLastAll(); err == nil {
 		for _, t := range last {
@@ -104,8 +126,12 @@ func (h *AdminHandler) buildViewModel(r *http.Request, w http.ResponseWriter) *v
 		conf.Log().Request(r).Warn("failed to fetch last activity per user", "error", err)
 	}
 
+	// filter by search (id or email substring)
 	entries := make([]*view.AdminUserEntry, 0, len(users))
 	for _, u := range users {
+		if search != "" && !strings.Contains(strings.ToLower(u.ID), search) && !strings.Contains(strings.ToLower(u.Email), search) {
+			continue
+		}
 		entries = append(entries, &view.AdminUserEntry{
 			User:           u,
 			HeartbeatCount: countByUser[u.ID],
@@ -113,7 +139,7 @@ func (h *AdminHandler) buildViewModel(r *http.Request, w http.ResponseWriter) *v
 		})
 	}
 
-	// rank developers by activity (heartbeat count) desc, then by id for stable order
+	// rank by activity (heartbeat count) desc, then by id for stable order
 	sort.SliceStable(entries, func(i, j int) bool {
 		if entries[i].HeartbeatCount != entries[j].HeartbeatCount {
 			return entries[i].HeartbeatCount > entries[j].HeartbeatCount
@@ -121,20 +147,152 @@ func (h *AdminHandler) buildViewModel(r *http.Request, w http.ResponseWriter) *v
 		return entries[i].User.ID < entries[j].User.ID
 	})
 
+	totalMatched := len(entries)
+
+	// paginate in-memory (admin user counts are modest)
+	offset := pageParams.Offset()
+	if offset > totalMatched {
+		offset = totalMatched
+	}
+	end := offset + pageParams.Limit()
+	if end > totalMatched {
+		end = totalMatched
+	}
+	paged := entries[offset:end]
+
 	totalHeartbeats, _ := h.heartbeatService.Count(true)
 	online, _ := h.userService.CountCurrentlyOnline()
 
 	vm := &view.AdminViewModel{
-		SharedLoggedInViewModel: view.SharedLoggedInViewModel{
-			SharedViewModel: view.NewSharedViewModel(h.config, nil),
-			User:            principal,
-		},
-		Users:           entries,
-		TotalUsers:      len(users),
-		TotalHeartbeats: totalHeartbeats,
-		OnlineUsers:     online,
+		SharedLoggedInViewModel: base(nil),
+		Users:                   paged,
+		TotalUsers:              len(users),
+		TotalHeartbeats:         totalHeartbeats,
+		OnlineUsers:             online,
+		Search:                  rawSearch,
+		Page:                    pageParams.Page,
+		PageSize:                pageParams.PageSize,
+		TotalMatched:            totalMatched,
 	}
 	return routeutils.WithSessionMessages(vm, r, w)
+}
+
+func (h *AdminHandler) PostCreateUser(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		routeutils.SetError(r, w, "missing parameters")
+		h.redirectToDashboard(w, r)
+		return
+	}
+
+	username := strings.TrimSpace(r.PostFormValue("username"))
+	email := strings.TrimSpace(r.PostFormValue("email"))
+	password := r.PostFormValue("password")
+	isAdmin := r.PostFormValue("is_admin") != ""
+
+	if !models.ValidateUsername(username) {
+		routeutils.SetError(r, w, "invalid username")
+		h.redirectToDashboard(w, r)
+		return
+	}
+	if email != "" && !models.ValidateEmail(email) {
+		routeutils.SetError(r, w, "invalid email address")
+		h.redirectToDashboard(w, r)
+		return
+	}
+	if !models.ValidatePassword(password) {
+		routeutils.SetError(r, w, fmt.Sprintf("password must be at least %d characters", models.MinPasswordLength))
+		h.redirectToDashboard(w, r)
+		return
+	}
+
+	signup := &models.Signup{
+		Username:       username,
+		Email:          email,
+		Password:       password,
+		PasswordRepeat: password,
+	}
+	_, created, err := h.userService.CreateOrGet(signup, isAdmin)
+	if err != nil {
+		conf.Log().Request(r).Error("admin: failed to create user", "userID", username, "error", err)
+		routeutils.SetError(r, w, conf.ErrInternalServerError)
+		h.redirectToDashboard(w, r)
+		return
+	}
+	if !created {
+		routeutils.SetError(r, w, fmt.Sprintf("user '%s' already exists", username))
+		h.redirectToDashboard(w, r)
+		return
+	}
+
+	routeutils.SetSuccess(r, w, fmt.Sprintf("created user '%s'", username))
+	h.redirectToDashboard(w, r)
+}
+
+func (h *AdminHandler) PostEditUser(w http.ResponseWriter, r *http.Request) {
+	target, ok := h.resolveTarget(w, r)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		routeutils.SetError(r, w, "missing parameters")
+		h.redirectToDashboard(w, r)
+		return
+	}
+
+	email := strings.TrimSpace(r.PostFormValue("email"))
+	if email != "" && !models.ValidateEmail(email) {
+		routeutils.SetError(r, w, "invalid email address")
+		h.redirectToDashboard(w, r)
+		return
+	}
+
+	target.Email = email
+	if _, err := h.userService.Update(target); err != nil {
+		conf.Log().Request(r).Error("admin: failed to update user", "userID", target.ID, "error", err)
+		routeutils.SetError(r, w, conf.ErrInternalServerError)
+		h.redirectToDashboard(w, r)
+		return
+	}
+
+	routeutils.SetSuccess(r, w, fmt.Sprintf("updated user '%s'", target.ID))
+	h.redirectToDashboard(w, r)
+}
+
+func (h *AdminHandler) PostResetPassword(w http.ResponseWriter, r *http.Request) {
+	target, ok := h.resolveTarget(w, r)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		routeutils.SetError(r, w, "missing parameters")
+		h.redirectToDashboard(w, r)
+		return
+	}
+
+	password := r.PostFormValue("password")
+	if !models.ValidatePassword(password) {
+		routeutils.SetError(r, w, fmt.Sprintf("password must be at least %d characters", models.MinPasswordLength))
+		h.redirectToDashboard(w, r)
+		return
+	}
+
+	hash, err := utils.HashPassword(password, h.config.Security.PasswordSalt)
+	if err != nil {
+		conf.Log().Request(r).Error("admin: failed to hash password", "userID", target.ID, "error", err)
+		routeutils.SetError(r, w, conf.ErrInternalServerError)
+		h.redirectToDashboard(w, r)
+		return
+	}
+	target.Password = hash
+	if _, err := h.userService.Update(target); err != nil {
+		conf.Log().Request(r).Error("admin: failed to reset password", "userID", target.ID, "error", err)
+		routeutils.SetError(r, w, conf.ErrInternalServerError)
+		h.redirectToDashboard(w, r)
+		return
+	}
+
+	routeutils.SetSuccess(r, w, fmt.Sprintf("reset password for '%s'", target.ID))
+	h.redirectToDashboard(w, r)
 }
 
 func (h *AdminHandler) PostToggleAdmin(w http.ResponseWriter, r *http.Request) {
