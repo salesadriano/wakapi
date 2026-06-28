@@ -13,9 +13,11 @@ import (
 	"github.com/muety/wakapi/middlewares"
 	"github.com/muety/wakapi/mocks"
 	"github.com/muety/wakapi/models"
+	"github.com/muety/wakapi/models/view"
 	routeutils "github.com/muety/wakapi/routes/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func newAdminTestHandler(userMock *mocks.UserServiceMock) *AdminHandler {
@@ -175,6 +177,7 @@ func TestAdminHandler_PostToggleAdmin_TogglesOtherUser(t *testing.T) {
 
 func TestAdminHandler_PostCreateUser_Valid(t *testing.T) {
 	conf.Set(conf.Empty())
+	conf.Get().Mail.SkipVerifyMXRecord = true // don't do DNS MX lookups in tests
 	admin := &models.User{ID: "root", IsAdmin: true}
 	created := &models.User{ID: "newdev"}
 
@@ -212,6 +215,7 @@ func TestAdminHandler_PostCreateUser_WeakPasswordRejected(t *testing.T) {
 
 func TestAdminHandler_PostEditUser(t *testing.T) {
 	conf.Set(conf.Empty())
+	conf.Get().Mail.SkipVerifyMXRecord = true // don't do DNS MX lookups in tests
 	admin := &models.User{ID: "root", IsAdmin: true}
 	target := &models.User{ID: "joe", Email: "old@example.test"}
 
@@ -252,4 +256,45 @@ func TestAdminHandler_PostResetPassword(t *testing.T) {
 
 	assert.Equal(t, http.StatusFound, rec.Code)
 	userMock.AssertCalled(t, "Update", mock.Anything)
+}
+
+func TestAdminHandler_BuildViewModel_SearchSortPaginate(t *testing.T) {
+	conf.Set(conf.Empty())
+	admin := &models.User{ID: "root", IsAdmin: true}
+	users := []*models.User{
+		{ID: "alice", Email: "alice@example.com"},
+		{ID: "alex", Email: "alex@example.com"},
+		{ID: "bob", Email: "bob@example.com"},
+	}
+
+	userMock := new(mocks.UserServiceMock)
+	userMock.On("GetAll").Return(users, nil)
+	userMock.On("CountCurrentlyOnline").Return(1, nil)
+
+	hbMock := new(mocks.HeartbeatServiceMock)
+	hbMock.On("CountByUsers", mock.Anything).Return([]*models.CountByUser{
+		{User: "alice", Count: 9}, {User: "alex", Count: 3}, {User: "bob", Count: 1},
+	}, nil)
+	hbMock.On("GetLastAll").Return([]*models.TimeByUser{}, nil)
+	hbMock.On("Count", true).Return(13, nil)
+
+	h := &AdminHandler{config: conf.Get(), userService: userMock, heartbeatService: hbMock}
+
+	var vm *view.AdminViewModel
+	r := chi.NewRouter()
+	r.Use(middlewares.NewSharedDataMiddleware())
+	r.Use(injectPrincipal(admin))
+	r.Get("/admin", func(w http.ResponseWriter, req *http.Request) {
+		vm = h.buildViewModel(req, w)
+	})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin?q=al", nil))
+
+	assert.Equal(t, 3, vm.TotalUsers)
+	assert.Equal(t, 2, vm.TotalMatched) // alice + alex match "al"
+	require.Len(t, vm.Users, 2)
+	// sorted by heartbeat count desc -> alice (9) before alex (3)
+	assert.Equal(t, "alice", vm.Users[0].User.ID)
+	assert.Equal(t, "alex", vm.Users[1].User.ID)
+	assert.EqualValues(t, 13, vm.TotalHeartbeats)
 }
